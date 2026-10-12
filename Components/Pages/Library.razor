@@ -9,5 +9,5 @@
  private string query="";private List<Song> songs=[];private List<Artist> artists=[];private string? error;private bool busy;
  protected override async Task OnParametersSetAsync(){query=Q??"";await Load();}
  private void Search()=>Navigation.NavigateTo("/library?q="+Uri.EscapeDataString(query.Trim()));
- private async Task Load(){busy=true;error=null;try{if(!Repository.Configured){error="The music library is getting connected. Please check back soon.";return;}songs=await Repository.Songs(query);artists=await Repository.Artists(query);}catch(MySqlConnector.MySqlException){error="The library is temporarily unavailable. Please try again later.";}finally{busy=false;}}
+ private async Task Load(){busy=true;error=null;try{if(!Repository.Configured){error="The music library is getting connected. Please check back soon.";return;}songs=await Repository.Songs(query);artists=await Repository.Artists(query);}catch(Npgsql.NpgsqlException){error="The library is temporarily unavailable. Please try again later.";}finally{busy=false;}}
 }

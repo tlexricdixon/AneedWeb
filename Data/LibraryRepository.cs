@@ -1,44 +1,54 @@
-using MySqlConnector;
-using System.Text.Json;
+using Npgsql;
 using AneedWeb.Services;
+using System.Text.Json;
 namespace AneedWeb.Data;
 
+// Public website models. Song IDs use stable SAM IDs; artist IDs use music.artists.id.
 public record Artist(long Id, string Name, string Biography, string? Image);
 public record Song(long Id, string Title, long ArtistId, string Artist, string Album, int? Year, string Description, string? Artwork, string Genre, string Composer, string Label, string Isrc);
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
-// Read-only adapter for the existing SAMDB.songlist table. No migrations or writes.
+// Read-only PostgreSQL catalog. No direct dependency on SAM MariaDB.
 public class LibraryRepository(IConfiguration config, IWebHostEnvironment environment)
 {
     public bool Configured => !string.IsNullOrWhiteSpace(config.GetConnectionString("Library"));
-    private async Task<MySqlConnection> Open()
+    private async Task<NpgsqlConnection> Open()
     {
-        if (!Configured) throw new InvalidOperationException("Library is not configured.");
-        var connection = new MySqlConnection(config.GetConnectionString("Library"));
+        if (!Configured) throw new InvalidOperationException("PostgreSQL catalog is not configured.");
+        var connection = new NpgsqlConnection(config.GetConnectionString("Library"));
         try { await connection.OpenAsync(); return connection; }
         catch { await connection.DisposeAsync(); throw; }
     }
-    private static string Text(MySqlDataReader r, int i) => r.IsDBNull(i) ? "" : r.GetString(i);
-    // SAM pictures may be Windows filenames. Only web URLs are suitable for the browser.
-    private static string? Artwork(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && (uri.Scheme == "https" || uri.Scheme == "http") ? value : null;
-    private static Song ReadSong(MySqlDataReader r) => new(
-        r.GetInt64(0), Text(r,1), r.GetInt64(0), Text(r,2), Text(r,3),
-        int.TryParse(Text(r,4),out var year) && year>0 ? year : null,
-        Text(r,5), Artwork(Text(r,6)), Text(r,7), Text(r,8), Text(r,9), Text(r,10));
-    private const string SongSelect = "SELECT s.ID,s.title,s.artist,s.album,s.albumyear,s.info,s.picture,s.genre,s.composer,s.label,s.ISRC FROM songlist s ";
+
+    // Fields not yet present in catalog_tracks are deliberately blank, not fabricated.
+    // Preserve the public route /songs/{sam_song_id} and link to stable artist IDs.
+    private const string SongSelect = """
+        SELECT c.sam_song_id::bigint, c.title, coalesce(c.artist_id,0), c.artist,
+               c.album, c.album_year, c.genre, coalesce(c.isrc,'')
+        FROM music.catalog_tracks c
+        """;
+    private static Song ReadSong(NpgsqlDataReader r) => new(
+        r.GetInt64(0), r.GetString(1), r.GetInt64(2), r.GetString(3),
+        r.GetString(4), r.IsDBNull(5) ? null : r.GetInt32(5),
+        "", null, r.GetString(6), "", "", r.GetString(7));
 
     public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null)
     {
         await using var c = await Open();
-        // Artist URLs use a representative song ID because SAM has no artist primary key.
-        await using var cmd = new MySqlCommand(SongSelect + "WHERE s.songtype='S' AND (@id IS NULL OR s.ID=@id) AND (@artist IS NULL OR s.artist=(SELECT artist FROM songlist WHERE ID=@artist)) AND (@q='' OR LOCATE(@q,s.title)>0 OR LOCATE(@q,s.artist)>0) ORDER BY s.artist,s.title,s.ID LIMIT 100", c);
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@artist", artist);
-        cmd.Parameters.AddWithValue("@q", query.Trim());
+        await using var cmd = new NpgsqlCommand(SongSelect + """
+            WHERE (@id::bigint IS NULL OR c.sam_song_id = @id)
+              AND (@artist::bigint IS NULL OR c.artist_id = @artist)
+              AND (@q = '' OR strpos(lower(c.title), lower(@q)) > 0
+                           OR strpos(lower(c.artist), lower(@q)) > 0)
+            ORDER BY c.artist,c.title,c.sam_song_id LIMIT 100
+            """, c);
+        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("artist", (object?)artist ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("q", query.Trim());
         await using var r = await cmd.ExecuteReaderAsync();
-        var result = new List<Song>();
-        while (await r.ReadAsync()) result.Add(ReadSong(r));
-        return result;
+        var songs = new List<Song>();
+        while (await r.ReadAsync()) songs.Add(ReadSong(r));
+        return songs;
     }
 
     public async Task<List<Song>> BroadcastSongs(IEnumerable<Track> tracks)
@@ -46,38 +56,48 @@ public class LibraryRepository(IConfiguration config, IWebHostEnvironment enviro
         var items = tracks.Take(11).ToArray();
         if (items.Length == 0 || !Configured) return [];
         await using var c = await Open();
-        var conditions = items.Select((_, i) => $"(s.title=@title{i} AND s.artist=@artist{i})");
-        await using var cmd = new MySqlCommand(SongSelect + "WHERE s.songtype='S' AND (" + string.Join(" OR ", conditions) + ")", c);
-        for (var i = 0; i < items.Length; i++)
+        var terms = items.Select((_, i) => $"(lower(c.title)=lower(@title{i}) AND lower(c.artist)=lower(@artist{i}))");
+        await using var cmd = new NpgsqlCommand(SongSelect + " WHERE " + string.Join(" OR ", terms), c);
+        for (int i = 0; i < items.Length; i++)
         {
-            cmd.Parameters.AddWithValue($"@title{i}", items[i].Title);
-            cmd.Parameters.AddWithValue($"@artist{i}", items[i].Artist);
+            cmd.Parameters.AddWithValue($"title{i}", items[i].Title);
+            cmd.Parameters.AddWithValue($"artist{i}", items[i].Artist);
         }
         await using var r = await cmd.ExecuteReaderAsync();
-        var result = new List<Song>();
-        while (await r.ReadAsync()) result.Add(ReadSong(r));
-        return result;
+        var songs = new List<Song>();
+        while (await r.ReadAsync()) songs.Add(ReadSong(r));
+        return songs;
     }
 
     public async Task<List<Artist>> Artists(string query = "", long? id = null)
     {
         await using var c = await Open();
-        await using var cmd = new MySqlCommand("SELECT MIN(s.ID),s.artist,COUNT(*),COUNT(DISTINCT NULLIF(s.album,'')),MAX(s.picture) FROM songlist s WHERE s.songtype='S' AND s.artist<>'' AND (@id IS NULL OR s.artist=(SELECT artist FROM songlist WHERE ID=@id)) AND (@q='' OR LOCATE(@q,s.artist)>0) GROUP BY s.artist ORDER BY s.artist LIMIT 100",c);
-        cmd.Parameters.AddWithValue("@id",id);
-        cmd.Parameters.AddWithValue("@q",query.Trim());
+        await using var cmd = new NpgsqlCommand("""
+            SELECT a.id,a.name,count(c.id),count(DISTINCT nullif(c.album,''))
+            FROM music.artists a
+            INNER JOIN music.catalog_tracks c ON c.artist_id=a.id
+            WHERE (@id::bigint IS NULL OR a.id=@id)
+              AND (@q='' OR strpos(lower(a.name),lower(@q))>0)
+            GROUP BY a.id,a.name ORDER BY a.name LIMIT 100
+            """, c);
+        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("q", query.Trim());
         await using var r = await cmd.ExecuteReaderAsync();
-        var result = new List<Artist>();
-        while (await r.ReadAsync()) result.Add(new(r.GetInt64(0),Text(r,1),$"{r.GetInt64(2)} tracks across {r.GetInt64(3)} albums in the Aneed library. Explore their music below.",Artwork(Text(r,4))));
-        return result;
+        var results = new List<Artist>();
+        while (await r.ReadAsync())
+            results.Add(new Artist(r.GetInt64(0), r.GetString(1),
+                $"{r.GetInt64(2)} tracks across {r.GetInt64(3)} albums in the Aneed library. Explore their music below.", null));
+        return results;
     }
 
     public async Task<List<FeedPost>> Posts(long? id = null)
     {
-        // SAM has no editorial feed table. Keep this unified model outside the broadcaster DB.
         var path = Path.Combine(environment.ContentRootPath, "Data", "feed.json");
         if (!File.Exists(path)) return [];
         await using var stream = File.OpenRead(path);
-        var posts = await JsonSerializer.DeserializeAsync<List<FeedPost>>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
-        return posts.Where(p => p.Published <= DateTime.UtcNow && (id is null || p.Id == id)).OrderByDescending(p=>p.Published).Take(6).ToList();
+        var posts = await JsonSerializer.DeserializeAsync<List<FeedPost>>(stream,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+        return posts.Where(p => p.Published <= DateTime.UtcNow && (id is null || p.Id == id))
+            .OrderByDescending(p => p.Published).Take(6).ToList();
     }
 }
