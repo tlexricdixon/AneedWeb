@@ -43,6 +43,6 @@
             title = artist?.Name ?? "Artist not found";
             if (artist is null) error = "This entry could not be found in the library.";
         }
-        catch (MySqlConnector.MySqlException) { error = "The library is temporarily unavailable."; }
+        catch (Npgsql.NpgsqlException) { error = "The library is temporarily unavailable."; }
     }
 }
