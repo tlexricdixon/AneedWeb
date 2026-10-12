@@ -1,0 +1,32 @@
+@implements IAsyncDisposable
+@inject AneedWeb.Services.BroadcastService Broadcast
+@inject IJSRuntime JS
+@inject LibraryRepository Repository
+<div class="persistent-player" id="listen">
+ <img class="player-art" src="@(state.Current?.Artwork ?? "/images/station.webp")" alt="Current track artwork" />
+ <div class="player-info"><span class="eyebrow">@(state.Error is not null ? "UPDATES UNAVAILABLE" : state.Playing ? "● LIVE ON AIR" : "STATION PLAYER")</span><a class="player-song" href="@SongLink"><strong>@(state.Current?.Title ?? "Aneed Static System")</strong></a><a href="@ArtistLink">@(state.Current?.Artist ?? "The signal is alive.")</a></div>
+ <button class="play-button" @onclick="Toggle" aria-label="@(playing ? "Pause live radio" : "Play live radio")">@(playing ? "Ⅱ" : "▶")</button>
+ <div class="player-label"><strong>LISTEN LIVE</strong><small>@(playing ? "You’re tuned in" : "Your next discovery is on air")</small></div>
+ <label class="volume">Volume <input aria-label="Volume" type="range" min="0" max="1" step="0.01" value="0.7" @oninput="Volume" /></label>
+ <a class="external" href="https://live365.com/station/Aneed-Static-System-a30355" target="_blank" rel="noopener">Full player ↗</a>
+ <audio id="station-audio" preload="none" src="https://streaming.live365.com/a30355"></audio>
+ @if (error is not null) { <span role="alert" class="audio-error">@error</span> }
+</div>
+@code {
+ private AneedWeb.Services.Broadcast state = new(false,null,[],null);
+ private bool playing; private string? error;
+ private Song? match;
+ private DotNetObjectReference<LivePlayer>? reference;
+ private string SongLink=>match is {} song ? $"/songs/{song.Id}" : Search(state.Current?.Title);
+ private string ArtistLink=>match is {} song ? $"/artists/{song.ArtistId}" : Search(state.Current?.Artist);
+ private async Task Match(){match=null;if(Repository.Configured && state.Current is {} track)try{match=(await Repository.BroadcastSongs([track])).FirstOrDefault();}catch(MySqlConnector.MySqlException){}}
+ [JSInvokable] public Task PlaybackChanged(bool active,bool failed){playing=active;if(failed)error="The stream was interrupted. Try Play again or open the full player.";return InvokeAsync(StateHasChanged);}
+ private readonly CancellationTokenSource stop = new(); private Task? polling;
+ protected override async Task OnInitializedAsync() { state=await Broadcast.Get(); await Match(); }
+ protected override async Task OnAfterRenderAsync(bool first) { if(first) { reference=DotNetObjectReference.Create(this);await JS.InvokeVoidAsync("stationPlayer.connect",reference);polling=Poll(); } }
+ private async Task Poll() { try { using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30)); while(await timer.WaitForNextTickAsync(stop.Token)) { state=await Broadcast.Get(); await Match(); await InvokeAsync(StateHasChanged); } } catch(OperationCanceledException) {} }
+ private async Task Toggle() { try { playing=await JS.InvokeAsync<bool>("stationPlayer.toggle"); error=null; } catch(JSException) { playing=false; error="Playback could not start. Please try the full Live365 player."; } }
+ private async Task Volume(ChangeEventArgs e) { if(double.TryParse(e.Value?.ToString(),System.Globalization.CultureInfo.InvariantCulture,out var volume)) await JS.InvokeVoidAsync("stationPlayer.volume",volume); }
+ private static string Search(string? artist)=>"/library?q="+Uri.EscapeDataString(artist??"");
+ public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(polling is not null) await polling; stop.Dispose();reference?.Dispose(); }
+}

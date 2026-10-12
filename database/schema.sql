@@ -1,0 +1,7 @@
+-- The website uses the existing SAMDB.songlist table supplied by the station.
+-- No new database tables, views, migrations, or writes are required.
+-- Required read columns:
+-- ID, artist, title, album, albumyear, info, picture, genre, composer, label, ISRC, songtype.
+-- All library queries filter songtype='S' to exclude ads and station IDs.
+-- Configure a SELECT-only account scoped to SAMDB.songlist.
+-- Do not modify SAM broadcasting tables to set up this website.

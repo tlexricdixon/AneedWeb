@@ -1,0 +1,9 @@
+@page "/feed"
+@page "/feed/{Id:long}"
+@inject LibraryRepository Repository
+<PageTitle>Static dispatches — Aneed Static System</PageTitle>
+<section class="content-section page"><span class="eyebrow">NOTES FROM THE OTHER SIDE</span><h1>Static dispatches.</h1>@if(error is not null){<p class="notice">@error</p>}else{@foreach(var post in posts){<article class="post"><span class="eyebrow">@post.Type / @post.Published.ToString("MMM dd, yyyy")</span><h2><a href="/feed/@post.Id">@post.Title</a></h2><p class="prose">@(Id is null ? post.Excerpt : post.Body)</p></article>}@if(posts.Count==0){<p>New transmissions are coming. Check back for station updates and artist stories.</p>}}</section>
+@code{
+ [Parameter]public long? Id{get;set;}private List<FeedPost> posts=[];private string? error;
+ protected override async Task OnParametersSetAsync(){error=null;posts=[];try{posts=await Repository.Posts(Id);}catch(System.Text.Json.JsonException){error="Dispatches are temporarily unavailable.";}}
+}

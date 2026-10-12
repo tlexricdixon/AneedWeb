@@ -1,0 +1,47 @@
+@page "/songs/{Id:long}"
+@inject LibraryRepository Repository
+<PageTitle>@title — Aneed Static System</PageTitle>
+<section class="content-section page">
+    <a href="/library" class="text-link">← Back to library</a>
+    @if (error is not null)
+    {
+        <h1>@title</h1><p class="notice">@error</p>
+    }
+    else if (song is not null)
+    {
+        <div class="detail">
+            <img src="@(song.Artwork ?? "/images/station.webp")" alt="Song artwork" />
+            <div>
+                <span class="eyebrow">FROM THE LIBRARY / SONG</span>
+                <h1>@song.Title</h1>
+                <a class="text-link" href="/artists/@song.ArtistId">@song.Artist ↗</a>
+                <p>@song.Album @song.Year</p>
+                <dl class="song-facts">
+                    @if (!string.IsNullOrWhiteSpace(song.Genre)) { <dt>Genre</dt><dd>@song.Genre</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Composer)) { <dt>Composer</dt><dd>@song.Composer</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Label)) { <dt>Label</dt><dd>@song.Label</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Isrc)) { <dt>ISRC</dt><dd>@song.Isrc</dd> }
+                </dl>
+                <p class="prose">@(string.IsNullOrWhiteSpace(song.Description) ? "More about this song is coming. Explore its artist’s library in the meantime." : song.Description)</p>
+            </div>
+        </div>
+    }
+</section>
+@code {
+    [Parameter] public long Id { get; set; }
+    private Song? song;
+    private string title = "The music library";
+    private string? error;
+    protected override async Task OnParametersSetAsync()
+    {
+        song = null; error = null;
+        if (!Repository.Configured) { error = "The music library is getting connected. Please check back soon."; return; }
+        try
+        {
+            song = (await Repository.Songs(id: Id)).FirstOrDefault();
+            title = song?.Title ?? "Song not found";
+            if (song is null) error = "This entry could not be found in the library.";
+        }
+        catch (MySqlConnector.MySqlException) { error = "The library is temporarily unavailable."; }
+    }
+}
