@@ -9,9 +9,9 @@ public record Song(long Id, string Title, long ArtistId, string Artist, string A
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
 // Read-only PostgreSQL catalog. No direct dependency on SAM MariaDB.
-public class LibraryRepository(IConfiguration config, IWebHostEnvironment environment)
+public class LibraryRepository(IWebHostEnvironment environment)
 {
-    public bool Configured => !string.IsNullOrWhiteSpace(config.GetConnectionString("Library"));
+    public bool Configured => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
     private async Task<NpgsqlConnection> Open()
     {
         if (!Configured) throw new InvalidOperationException("PostgreSQL catalog is not configured.");
