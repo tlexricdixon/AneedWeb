@@ -7,6 +7,7 @@ namespace AneedWeb.Data;
 // Public website models. Song IDs use stable SAM IDs; artist IDs use music.artists.id.
 public record Artist(long Id, string Name, string Biography, string? Image);
 public record Song(long Id, string Title, long ArtistId, string Artist, string Album, int? Year, string Description, string? Artwork, string Genre, string Composer, string Label, string Isrc);
+public record ArtistEditorialDraft(string Body, string Status, string Model, string PromptVersion, string SourceUrl, string LicenseNotes);
 public record ArtistContentDraft(long ArtistId, string ArtistName, string Summary, string SourceUrl, string LicenseNotes, string ReviewStatus);
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
@@ -243,6 +244,20 @@ public class LibraryRepository(IWebHostEnvironment environment)
             reader.IsDBNull(3) ? "" : reader.GetString(3),
             reader.IsDBNull(4) ? "" : reader.GetString(4),
             reader.GetString(5));
+    }
+
+    public async Task<ArtistEditorialDraft?> ArtistEditorialPreview(long artistId)
+    {
+        await using var connection = await Open();
+        await using var cmd = new NpgsqlCommand("""
+            SELECT body, status, model_name, prompt_version, source_url, license_notes
+            FROM music.artist_editorial WHERE artist_id=@id
+            """, connection);
+        cmd.Parameters.AddWithValue("id", artistId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return new ArtistEditorialDraft(reader.GetString(0), reader.GetString(1),
+            reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5));
     }
 
     public async Task<List<FeedPost>> Posts(long? id = null)
