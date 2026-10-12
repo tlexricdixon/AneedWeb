@@ -4,6 +4,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Npgsql;
 
+if (args.Contains("--content", StringComparer.OrdinalIgnoreCase))
+    return await ContentDrafts.Run(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase));
+
 var connectionString = Environment.GetEnvironmentVariable("ANEED_POSTGRES");
 var contact = Environment.GetEnvironmentVariable("ANEED_CONTACT_EMAIL");
 if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(contact))
