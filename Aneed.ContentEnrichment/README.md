@@ -64,3 +64,7 @@ First pass targets **ABBA (1552)** and **Quarterflash (312)** only. Dry-run gene
 Visit `http://localhost:5200/internal/artist-content/1552` and `/internal/artist-content/312` in local Development mode to compare drafts with original source extracts. This preview remains read-only.
 
 Source Wikipedia text is preserved separately. AI rewriting does not automatically remove attribution or CC BY-SA obligations: treat the rewritten text as a potentially licensed adaptation, check facts, and review license details before publishing. Prompt version: `aneed-artist-v1`. The worker does not rewrite any approved material automatically.
+
+## Voice prompt v2
+
+The writer now uses verified song titles from catalog_tracks only as optional context (not lyrical interpretations), a more factual 90–120-word prompt, and one corrective pass for drafts outside the 80–130-word acceptance range. No track_analysis JSON is consumed yet. The two-artist test remains ABBA and Quarterflash. Dry run before inserting drafts; existing editorial rows are never overwritten.
