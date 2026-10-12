@@ -1,5 +1,6 @@
-using Npgsql;
 using AneedWeb.Services;
+using Npgsql;
+using System.Text;
 using System.Text.Json;
 namespace AneedWeb.Data;
 
@@ -33,40 +34,87 @@ public class LibraryRepository(IWebHostEnvironment environment)
         r.GetString(4), r.IsDBNull(5) ? null : r.GetInt32(5),
         "", null, r.GetString(6), "", "", r.GetString(7));
 
-    public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null)
+
+    public async Task<List<Song>> Songs(
+        string query = "",
+        long? id = null,
+        long? artist = null)
     {
-        await using var c = await Open();
-        await using var cmd = new NpgsqlCommand(SongSelect + """
-            WHERE (@id IS NULL OR c.sam_song_id = @id)
-              AND (@artist IS NULL OR c.artist_id = @artist)
-              AND (@q = '' OR strpos(lower(c.title), lower(@q)) > 0
-                           OR strpos(lower(c.artist), lower(@q)) > 0)
-            ORDER BY c.artist,c.title,c.sam_song_id LIMIT 100
-            """, c);
-        cmd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)id ?? DBNull.Value;
-        cmd.Parameters.Add("artist", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)artist ?? DBNull.Value;
-        cmd.Parameters.AddWithValue("q", query.Trim());
+        await using var connection = await Open();
+
+        var sql = new StringBuilder(SongSelect);
+        sql.AppendLine(" WHERE 1 = 1");
+
+        await using var cmd = new NpgsqlCommand();
+        cmd.Connection = connection;
+
+        if (id.HasValue)
+        {
+            sql.AppendLine(" AND c.sam_song_id = @id");
+
+            cmd.Parameters.AddWithValue(
+                "id",
+                NpgsqlTypes.NpgsqlDbType.Bigint,
+                id.Value);
+        }
+
+        if (artist.HasValue)
+        {
+            sql.AppendLine(" AND c.artist_id = @artist");
+
+            cmd.Parameters.AddWithValue(
+                "artist",
+                NpgsqlTypes.NpgsqlDbType.Bigint,
+                artist.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            sql.AppendLine("""
+            AND (
+                c.title ILIKE @search
+                OR c.artist ILIKE @search
+            )
+            """);
+
+            // Escape LIKE wildcards so search input is literal.
+            var escaped = query.Trim()
+                .Replace("\\", "\\\\")
+                .Replace("%", "\\%")
+                .Replace("_", "\\_");
+
+            cmd.Parameters.AddWithValue("search", $"%{escaped}%");
+        }
+
+        sql.AppendLine("""
+        ORDER BY c.artist, c.title, c.sam_song_id
+        LIMIT 100
+        """);
+
+        cmd.CommandText = sql.ToString();
+
         try
         {
-            await using var r = await cmd.ExecuteReaderAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
 
             var songs = new List<Song>();
 
-            while (await r.ReadAsync())
+            while (await reader.ReadAsync())
             {
-                songs.Add(ReadSong(r));
+                songs.Add(ReadSong(reader));
             }
 
             return songs;
         }
         catch (PostgresException ex)
         {
+            Console.WriteLine($"SQL: {cmd.CommandText}");
             Console.WriteLine($"SQL State: {ex.SqlState}");
             Console.WriteLine($"Message: {ex.MessageText}");
-            Console.WriteLine($"Detail: {ex.Detail}");
             throw;
         }
     }
+
 
     public async Task<List<Song>> BroadcastSongs(IEnumerable<Track> tracks)
     {
