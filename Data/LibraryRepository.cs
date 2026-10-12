@@ -14,6 +14,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
     public bool Configured => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
     private async Task<NpgsqlConnection> Open()
     {
+        
         if (!Configured) throw new InvalidOperationException("PostgreSQL catalog is not configured.");
         var connection = new NpgsqlConnection(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
         try { await connection.OpenAsync(); return connection; }
@@ -45,10 +46,26 @@ public class LibraryRepository(IWebHostEnvironment environment)
         cmd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)id ?? DBNull.Value;
         cmd.Parameters.Add("artist", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)artist ?? DBNull.Value;
         cmd.Parameters.AddWithValue("q", query.Trim());
-        await using var r = await cmd.ExecuteReaderAsync();
-        var songs = new List<Song>();
-        while (await r.ReadAsync()) songs.Add(ReadSong(r));
-        return songs;
+        try
+        {
+            await using var r = await cmd.ExecuteReaderAsync();
+
+            var songs = new List<Song>();
+
+            while (await r.ReadAsync())
+            {
+                songs.Add(ReadSong(r));
+            }
+
+            return songs;
+        }
+        catch (PostgresException ex)
+        {
+            Console.WriteLine($"SQL State: {ex.SqlState}");
+            Console.WriteLine($"Message: {ex.MessageText}");
+            Console.WriteLine($"Detail: {ex.Detail}");
+            throw;
+        }
     }
 
     public async Task<List<Song>> BroadcastSongs(IEnumerable<Track> tracks)
