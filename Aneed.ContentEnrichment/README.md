@@ -49,3 +49,18 @@ FROM music.artist_content c
 JOIN music.artists a ON a.id=c.artist_id
 ORDER BY a.name;
 ```
+
+## Aneed editorial voice — first two artists
+
+Run `database/004_artist_editorial.sql` against `aneed_analysis` first. Ensure Ollama is running on Nitro with model `ministral-3:8b`. The rewrite command uses `http://localhost:11434/` by default; override with `ANEED_OLLAMA_URL` if needed.
+
+```powershell
+dotnet run --project Aneed.ContentEnrichment -- --rewrite --dry-run
+dotnet run --project Aneed.ContentEnrichment -- --rewrite
+```
+
+First pass targets **ABBA (1552)** and **Quarterflash (312)** only. Dry-run generates and prints draft text without storing it; regular mode inserts into `music.artist_editorial` with `needs_review`. It never overwrites an existing editorial draft, even if rejected, and does not publish to public artist pages.
+
+Visit `http://localhost:5200/internal/artist-content/1552` and `/internal/artist-content/312` in local Development mode to compare drafts with original source extracts. This preview remains read-only.
+
+Source Wikipedia text is preserved separately. AI rewriting does not automatically remove attribution or CC BY-SA obligations: treat the rewritten text as a potentially licensed adaptation, check facts, and review license details before publishing. Prompt version: `aneed-artist-v1`. The worker does not rewrite any approved material automatically.
