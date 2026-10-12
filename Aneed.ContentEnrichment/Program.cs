@@ -4,6 +4,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Npgsql;
 
+if (args.Contains("--rewrite", StringComparer.OrdinalIgnoreCase))
+    return await EditorialRewriter.Run(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase));
+
 if (args.Contains("--content", StringComparer.OrdinalIgnoreCase))
     return await ContentDrafts.Run(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase));
 
