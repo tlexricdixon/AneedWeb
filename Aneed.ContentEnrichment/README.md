@@ -26,3 +26,26 @@ ORDER BY a.name;
 ```
 
 The first pass intentionally leaves artist biographies and images for a subsequent, license-aware stage. Do not treat unreviewed matches as published content.
+
+## Wikipedia biography drafts
+
+After the identity pass has saved matched artist sources, run:
+
+```powershell
+dotnet run --project Aneed.ContentEnrichment -- --content --dry-run
+dotnet run --project Aneed.ContentEnrichment -- --content
+```
+
+The content pass reads only matched artists that have an English Wikipedia URL, up to 20 at a time. It fetches each article's lead in plain text and stores it in `music.artist_content` as **needs_review**, never approved or published. It does not call Ollama or claim the extracted text is original. Existing `needs_review`, `approved`, or `rejected` rows are not overwritten. HTTP requests retry temporary errors.
+
+Wikipedia writing is reused under Creative Commons Attribution-ShareAlike. Before publication, check factual accuracy, display appropriate source/author/license attribution and comply with ShareAlike; an alternative is writing new original editorial content based on verified facts. No images are downloaded by this pass.
+
+Review in DBeaver:
+
+```sql
+SELECT a.name, c.review_status, left(c.summary, 350) AS preview,
+       c.summary_source_url, c.license_notes
+FROM music.artist_content c
+JOIN music.artists a ON a.id=c.artist_id
+ORDER BY a.name;
+```
