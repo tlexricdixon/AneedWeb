@@ -1,5 +1,6 @@
-using Npgsql;
 using AneedWeb.Services;
+using Npgsql;
+using System.Text;
 using System.Text.Json;
 namespace AneedWeb.Data;
 
@@ -9,13 +10,14 @@ public record Song(long Id, string Title, long ArtistId, string Artist, string A
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
 // Read-only PostgreSQL catalog. No direct dependency on SAM MariaDB.
-public class LibraryRepository(IConfiguration config, IWebHostEnvironment environment)
+public class LibraryRepository(IWebHostEnvironment environment)
 {
-    public bool Configured => !string.IsNullOrWhiteSpace(config.GetConnectionString("Library"));
+    public bool Configured => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
     private async Task<NpgsqlConnection> Open()
     {
+        
         if (!Configured) throw new InvalidOperationException("PostgreSQL catalog is not configured.");
-        var connection = new NpgsqlConnection(config.GetConnectionString("Library"));
+        var connection = new NpgsqlConnection(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
         try { await connection.OpenAsync(); return connection; }
         catch { await connection.DisposeAsync(); throw; }
     }
@@ -32,24 +34,87 @@ public class LibraryRepository(IConfiguration config, IWebHostEnvironment enviro
         r.GetString(4), r.IsDBNull(5) ? null : r.GetInt32(5),
         "", null, r.GetString(6), "", "", r.GetString(7));
 
-    public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null)
+
+    public async Task<List<Song>> Songs(
+        string query = "",
+        long? id = null,
+        long? artist = null)
     {
-        await using var c = await Open();
-        await using var cmd = new NpgsqlCommand(SongSelect + """
-            WHERE (@id::bigint IS NULL OR c.sam_song_id = @id)
-              AND (@artist::bigint IS NULL OR c.artist_id = @artist)
-              AND (@q = '' OR strpos(lower(c.title), lower(@q)) > 0
-                           OR strpos(lower(c.artist), lower(@q)) > 0)
-            ORDER BY c.artist,c.title,c.sam_song_id LIMIT 100
-            """, c);
-        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("artist", (object?)artist ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("q", query.Trim());
-        await using var r = await cmd.ExecuteReaderAsync();
-        var songs = new List<Song>();
-        while (await r.ReadAsync()) songs.Add(ReadSong(r));
-        return songs;
+        await using var connection = await Open();
+
+        var sql = new StringBuilder(SongSelect);
+        sql.AppendLine(" WHERE 1 = 1");
+
+        await using var cmd = new NpgsqlCommand();
+        cmd.Connection = connection;
+
+        if (id.HasValue)
+        {
+            sql.AppendLine(" AND c.sam_song_id = @id");
+
+            cmd.Parameters.AddWithValue(
+                "id",
+                NpgsqlTypes.NpgsqlDbType.Bigint,
+                id.Value);
+        }
+
+        if (artist.HasValue)
+        {
+            sql.AppendLine(" AND c.artist_id = @artist");
+
+            cmd.Parameters.AddWithValue(
+                "artist",
+                NpgsqlTypes.NpgsqlDbType.Bigint,
+                artist.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            sql.AppendLine("""
+            AND (
+                c.title ILIKE @search
+                OR c.artist ILIKE @search
+            )
+            """);
+
+            // Escape LIKE wildcards so search input is literal.
+            var escaped = query.Trim()
+                .Replace("\\", "\\\\")
+                .Replace("%", "\\%")
+                .Replace("_", "\\_");
+
+            cmd.Parameters.AddWithValue("search", $"%{escaped}%");
+        }
+
+        sql.AppendLine("""
+        ORDER BY c.artist, c.title, c.sam_song_id
+        LIMIT 100
+        """);
+
+        cmd.CommandText = sql.ToString();
+
+        try
+        {
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            var songs = new List<Song>();
+
+            while (await reader.ReadAsync())
+            {
+                songs.Add(ReadSong(reader));
+            }
+
+            return songs;
+        }
+        catch (PostgresException ex)
+        {
+            Console.WriteLine($"SQL: {cmd.CommandText}");
+            Console.WriteLine($"SQL State: {ex.SqlState}");
+            Console.WriteLine($"Message: {ex.MessageText}");
+            throw;
+        }
     }
+
 
     public async Task<List<Song>> BroadcastSongs(IEnumerable<Track> tracks)
     {
@@ -76,11 +141,11 @@ public class LibraryRepository(IConfiguration config, IWebHostEnvironment enviro
             SELECT a.id,a.name,count(c.id),count(DISTINCT nullif(c.album,''))
             FROM music.artists a
             INNER JOIN music.catalog_tracks c ON c.artist_id=a.id
-            WHERE (@id::bigint IS NULL OR a.id=@id)
+            WHERE (@id IS NULL OR a.id=@id)
               AND (@q='' OR strpos(lower(a.name),lower(@q))>0)
             GROUP BY a.id,a.name ORDER BY a.name LIMIT 100
             """, c);
-        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
+        cmd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)id ?? DBNull.Value;
         cmd.Parameters.AddWithValue("q", query.Trim());
         await using var r = await cmd.ExecuteReaderAsync();
         var results = new List<Artist>();
