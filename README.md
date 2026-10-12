@@ -5,20 +5,20 @@
 ## Nitro setup (no SAM connection required)
 
 1. Run `database/002_artists_postgres.sql` once against the existing **local PostgreSQL** `aneed_analysis` database, using DBeaver or psql. The script creates `music.artists`, backfills `music.catalog_tracks.artist_id`, and installs a trigger for new/updated catalog songs. Existing MusicBrainz and analysis tables remain intact.
-2. From the website repository directory, configure a read-only connection string with user secrets (not in Git):
+2. The website uses the existing `ANEED_POSTGRES` environment variable (the same one used by our analyzer and matcher). Confirm it exists in your PowerShell session and run:
 
 ```powershell
-dotnet user-secrets set "ConnectionStrings:Library" "Host=localhost;Port=5432;Database=aneed_analysis;Username=YOUR_READONLY_USER;Password=YOUR_PASSWORD"
+if (-not $env:ANEED_POSTGRES) { throw "ANEED_POSTGRES is not defined in this shell" }
 dotnet restore
 dotnet build
 dotnet run --urls http://localhost:5200
 ```
 
-If Nitro PostgreSQL runs on a different port, adjust accordingly. Open http://localhost:5200.
+The environment variable must contain a valid Npgsql/PostgreSQL connection string. Environment variables stored at the Windows user scope may require reopening PowerShell before they appear. Open http://localhost:5200.
 
-**Important:** the website connection user needs only SELECT privileges on `music.artists` and `music.catalog_tracks`, plus USAGE on schema `music`. Run the migration as a database owner, not as the website reader.
+**Important:** The existing `ANEED_POSTGRES` account may have write privileges for the analyzer. That's acceptable for local testing, but configure a separate read-only environment variable/account for the deployed Azure website. The website connection user needs only SELECT privileges on `music.artists` and `music.catalog_tracks`, plus USAGE on schema `music`. Run the migration as a database owner, not as the website reader.
 
-Create a dedicated reader in PostgreSQL (replace the password):
+For production, create a dedicated reader in PostgreSQL (replace the password):
 
 ```sql
 CREATE ROLE aneed_web_reader LOGIN PASSWORD 'REPLACE_WITH_STRONG_PASSWORD';
