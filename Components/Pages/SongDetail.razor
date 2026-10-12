@@ -42,6 +42,6 @@
             title = song?.Title ?? "Song not found";
             if (song is null) error = "This entry could not be found in the library.";
         }
-        catch (MySqlConnector.MySqlException) { error = "The library is temporarily unavailable."; }
+        catch (Npgsql.NpgsqlException) { error = "The library is temporarily unavailable."; }
     }
 }
