@@ -27,7 +27,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
     private const string SongSelect = """
         SELECT c.sam_song_id::bigint, c.title, coalesce(c.artist_id,0), c.artist,
                c.album, c.album_year, c.genre, coalesce(c.isrc,'')
-        FROM music.catalog_tracks c
+        FROM music.public_catalog_tracks c
         """;
     private static Song ReadSong(NpgsqlDataReader r) => new(
         r.GetInt64(0), r.GetString(1), r.GetInt64(2), r.GetString(3),
@@ -140,7 +140,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
         await using var cmd = new NpgsqlCommand("""
             SELECT a.id,a.name,count(c.id),count(DISTINCT nullif(c.album,''))
             FROM music.artists a
-            INNER JOIN music.catalog_tracks c ON c.artist_id=a.id
+            INNER JOIN music.public_catalog_tracks c ON c.artist_id=a.id
             WHERE (@id IS NULL OR a.id=@id)
               AND (@q='' OR strpos(lower(a.name),lower(@q))>0)
             GROUP BY a.id,a.name ORDER BY a.name LIMIT 100
@@ -167,7 +167,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
         await using var connection = await Open();
         const string filter = """
             FROM music.artists a
-            WHERE EXISTS (SELECT 1 FROM music.catalog_tracks t WHERE t.artist_id = a.id)
+            WHERE EXISTS (SELECT 1 FROM music.public_catalog_tracks t WHERE t.artist_id = a.id)
               AND left(upper(a.name), 1) = @letter
             """;
         await using var count = new NpgsqlCommand("SELECT count(*) " + filter, connection);
@@ -192,7 +192,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
         await using var connection = await Open();
         await using var cmd = new NpgsqlCommand("""
             SELECT c.album, count(*)::integer, min(c.album_year)
-            FROM music.catalog_tracks c
+            FROM music.public_catalog_tracks c
             WHERE c.artist_id = @artist AND btrim(c.album) <> ''
             GROUP BY c.album
             ORDER BY min(c.album_year) NULLS LAST, c.album

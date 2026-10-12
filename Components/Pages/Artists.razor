@@ -19,9 +19,9 @@
   @foreach (var artist in artists) { <a class="artist-card" href="/artists/@artist.Id">@artist.Name <span>↗</span></a> }
   @if (artists.Count == 0) { <p>No artists under this letter yet.</p> }
   <nav class="directory-pages" aria-label="Artist pages">
-   @if (page > 1) { <a href="@Href(page-1)">← Previous</a> }
-   <span>Page @page of @totalPages</span>
-   @if (page < totalPages) { <a href="@Href(page+1)">Next →</a> }
+   @if (currentPage > 1) { <a href="@Href(currentPage-1)">← Previous</a> }
+   <span>Page @currentPage of @totalPages</span>
+   @if (currentPage < totalPages) { <a href="@Href(currentPage+1)">Next →</a> }
   </nav>
  }
 </section>
@@ -29,7 +29,7 @@
  [SupplyParameterFromQuery(Name="letter")] public string? Letter { get; set; }
  [SupplyParameterFromQuery(Name="page")] public int Page { get; set; } = 1;
  private string selected = "A";
- private int page = 1;
+ private int currentPage = 1;
  private int totalPages = 1;
  private long total;
  private List<Artist> artists = [];
@@ -38,13 +38,13 @@
  protected override async Task OnParametersSetAsync()
  {
   selected = Letter is { Length: 1 } s && char.IsLetter(s[0]) && s[0] < 128 ? s.ToUpperInvariant() : "A";
-  page = Math.Max(1, Page);
+  currentPage = Math.Max(1, Page);
   error = null;
   artists = [];
   if (!Repository.Configured) { error = "The catalog is temporarily unavailable."; return; }
   try
   {
-   (artists, total) = await Repository.ArtistDirectory(selected, page);
+   (artists, total) = await Repository.ArtistDirectory(selected, currentPage);
    totalPages = Math.Max(1, (int)Math.Ceiling(total / 30.0));
   }
   catch (Npgsql.NpgsqlException) { error = "The artist directory is temporarily unavailable."; }
