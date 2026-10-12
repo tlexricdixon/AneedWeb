@@ -139,7 +139,7 @@ static async Task<JsonDocument> Fetch(HttpClient client, string url)
             {
                 var retryAfter = response.Headers.RetryAfter;
                 var delay = retryAfter?.Delta ??
-                    (retryAfter?.Date is { } when ? when - DateTimeOffset.UtcNow : TimeSpan.Zero);
+                    (retryAfter?.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : TimeSpan.Zero);
                 if (delay <= TimeSpan.Zero)
                     delay = TimeSpan.FromSeconds(2 * (1 << (attempt - 1)));
                 delay = TimeSpan.FromSeconds(Math.Clamp(delay.TotalSeconds, 1, 60));
