@@ -36,20 +36,25 @@ foreach (var (id, name) in jobs)
         var searchUrl = "https://musicbrainz.org/ws/2/artist/?query=" +
             Uri.EscapeDataString($"artist:\"{name}\"") + "&fmt=json&limit=10";
         using var search = await Fetch(http, searchUrl);
-        var matches = search.RootElement.GetProperty("artists").EnumerateArray()
+        var candidates = search.RootElement.GetProperty("artists").EnumerateArray()
             .Select(a => new
             {
                 Id = a.GetProperty("id").GetString()!,
                 Name = a.GetProperty("name").GetString()!,
                 SortName = a.GetProperty("sort-name").GetString()!,
-                Score = a.GetProperty("score").GetInt32()
+                Score = a.GetProperty("score").GetInt32(),
+                Type = a.TryGetProperty("type", out var artistType) ? artistType.GetString() ?? "" : "",
+                Country = a.TryGetProperty("country", out var country) ? country.GetString() ?? "" : "",
+                Disambiguation = a.TryGetProperty("disambiguation", out var disambiguation) ? disambiguation.GetString() ?? "" : ""
             })
-            .Where(a => Normalize(a.Name) == Normalize(name) ||
-                        Normalize(a.SortName) == Normalize(name))
             .ToList();
+        var matches = candidates.Where(a => Normalize(a.Name) == Normalize(name) ||
+                                             Normalize(a.SortName) == Normalize(name)).ToList();
         if (matches.Count != 1 || matches[0].Score < 95)
         {
             Console.WriteLine($"REVIEW: {name} ({matches.Count} exact candidates)");
+            foreach (var candidate in candidates)
+                Console.WriteLine($"  {candidate.Score,3} | {candidate.Id} | {candidate.Name} | {candidate.Type} | {candidate.Country} | {candidate.Disambiguation}");
             if (!dryRun)
             {
                 await using var review = new NpgsqlCommand("""
@@ -118,6 +123,14 @@ foreach (var (id, name) in jobs)
     }
 }
 return 0;
+
+static string SearchName(string value)
+{
+    value = value.Trim();
+    if (value.EndsWith(", the", StringComparison.OrdinalIgnoreCase))
+        return "The " + value[..^5];
+    return value;
+}
 
 static string Normalize(string value)
 {
