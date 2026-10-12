@@ -34,7 +34,7 @@ foreach (var (id, name) in jobs)
     {
         if (!dryRun) await UpdateJob(db, id, "processing", null);
         var searchUrl = "https://musicbrainz.org/ws/2/artist/?query=" +
-            Uri.EscapeDataString($"artist:\"{name}\"") + "&fmt=json&limit=10";
+            Uri.EscapeDataString($"artist:\"{SearchName(name)}\"") + "&fmt=json&limit=10";
         using var search = await Fetch(http, searchUrl);
         var candidates = search.RootElement.GetProperty("artists").EnumerateArray()
             .Select(a => new
