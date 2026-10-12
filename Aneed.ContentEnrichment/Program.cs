@@ -133,7 +133,7 @@ static string SearchName(string value)
 {
     value = value.Trim();
     if (value.EndsWith(", the", StringComparison.OrdinalIgnoreCase))
-        return "The " + value[..^5];
+        value = "The " + value[..^5];
     // The B-52's is indexed as The B-52s in MusicBrainz.
     // Removing this band's apostrophe makes the initial quoted query find it.
     if (value.Equals("The B-52's", StringComparison.OrdinalIgnoreCase))
