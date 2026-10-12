@@ -1,0 +1,52 @@
+@page "/artists"
+@inject LibraryRepository Repository
+<PageTitle>Artists A–Z — Aneed Static System</PageTitle>
+<section class="content-section page">
+ <span class="eyebrow">EXPLORE THE LIBRARY</span>
+ <h1>Artists A–Z</h1>
+ <p>Browse the artists in our music library.</p>
+ <nav class="alphabet" aria-label="Artist letters">
+ @foreach (var character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+ {
+  var letter = character.ToString();
+  <a class="@(letter == selected ? "selected" : "")" href="@($"/artists?letter={letter}")" aria-current="@(letter == selected ? "page" : null)">@letter</a>
+ }
+ </nav>
+ @if (error is not null) { <p class="notice">@error</p> }
+ else
+ {
+  <h2>@selected <small>@total artists</small></h2>
+  @foreach (var artist in artists) { <a class="artist-card" href="/artists/@artist.Id">@artist.Name <span>↗</span></a> }
+  @if (artists.Count == 0) { <p>No artists under this letter yet.</p> }
+  <nav class="directory-pages" aria-label="Artist pages">
+   @if (currentPage > 1) { <a href="@Href(currentPage-1)">← Previous</a> }
+   <span>Page @currentPage of @totalPages</span>
+   @if (currentPage < totalPages) { <a href="@Href(currentPage+1)">Next →</a> }
+  </nav>
+ }
+</section>
+@code {
+ [SupplyParameterFromQuery(Name="letter")] public string? Letter { get; set; }
+ [SupplyParameterFromQuery(Name="page")] public int Page { get; set; } = 1;
+ private string selected = "A";
+ private int currentPage = 1;
+ private int totalPages = 1;
+ private long total;
+ private List<Artist> artists = [];
+ private string? error;
+ private string Href(int p) => $"/artists?letter={selected}&page={p}";
+ protected override async Task OnParametersSetAsync()
+ {
+  selected = Letter is { Length: 1 } s && char.IsLetter(s[0]) && s[0] < 128 ? s.ToUpperInvariant() : "A";
+  currentPage = Math.Max(1, Page);
+  error = null;
+  artists = [];
+  if (!Repository.Configured) { error = "The catalog is temporarily unavailable."; return; }
+  try
+  {
+   (artists, total) = await Repository.ArtistDirectory(selected, currentPage);
+   totalPages = Math.Max(1, (int)Math.Ceiling(total / 30.0));
+  }
+  catch (Npgsql.NpgsqlException) { error = "The artist directory is temporarily unavailable."; }
+ }
+}

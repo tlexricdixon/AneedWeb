@@ -11,3 +11,12 @@ h1:focus{outline:none}
 .player-info .player-song{color:var(--text)}
 
 .song-facts{display:grid;grid-template-columns:100px 1fr;gap:8px;margin:24px 0;color:var(--muted);font-size:12px}.song-facts dt{color:var(--text)}.song-facts dd{margin:0}
+
+/* Music catalog navigation */
+.catalog-entry{scroll-margin-top:100px}
+.catalog-entry .search-form{max-width:760px;margin:22px 0 34px}
+.alphabet{display:flex;flex-wrap:wrap;gap:7px;margin:18px 0 30px}
+.alphabet a{display:inline-flex;align-items:center;justify-content:center;min-width:37px;min-height:38px;padding:6px 9px;border:1px solid var(--border, #505050);border-radius:6px;text-decoration:none;color:inherit}
+.alphabet a:hover,.alphabet a.selected{background:var(--accent, #a53030);color:white}
+.directory-pages{display:flex;gap:18px;align-items:center;justify-content:center;padding:30px 0}
+.directory-pages a{color:inherit}

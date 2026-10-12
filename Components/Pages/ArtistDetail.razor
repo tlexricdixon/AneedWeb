@@ -2,47 +2,49 @@
 @inject LibraryRepository Repository
 <PageTitle>@title — Aneed Static System</PageTitle>
 <section class="content-section page">
-    <a href="/library" class="text-link">← Back to library</a>
-    @if (error is not null)
-    {
-        <h1>@title</h1><p class="notice">@error</p>
-    }
-    else if (artist is not null)
-    {
-        <div class="detail">
-            <img src="@(artist.Image ?? "/images/station.webp")" alt="Artwork from the artist’s library" />
-            <div>
-                <span class="eyebrow">FROM THE LIBRARY / ARTIST</span>
-                <h1>@artist.Name</h1>
-                <p class="prose">@artist.Biography</p>
-            </div>
-        </div>
-        <p class="muted">@string.Join(" · ", songs.Select(s => s.Genre).Where(g => !string.IsNullOrWhiteSpace(g)).Distinct())</p>
-        <h2>In the library</h2>
-        @foreach (var song in songs)
-        {
-            <div class="track-row"><div><a class="track-title" href="/songs/@song.Id">@song.Title</a><span class="muted">@song.Album</span></div></div>
-        }
-        @if (songs.Count == 100) { <p class="muted">Showing the first 100 songs. <a href="@("/library?q=" + Uri.EscapeDataString(artist.Name))">Search this artist</a> to refine the results.</p> }
-    }
+ <a href="/artists" class="text-link">← Artists A–Z</a>
+ @if (error is not null) { <h1>@title</h1><p class="notice">@error</p> }
+ else if (artist is not null)
+ {
+  <div class="detail">
+   <img src="@(artist.Image ?? "/images/station.webp")" alt="" />
+   <div><span class="eyebrow">FROM THE LIBRARY / ARTIST</span><h1>@artist.Name</h1><p class="prose">@artist.Biography</p></div>
+  </div>
+  <h2>Albums in our library</h2>
+  @foreach (var album in albums)
+  {
+   <a class="artist-card" href="@($"/artists/{Id}/albums/{Uri.EscapeDataString(album.Name)}")">
+     @album.Name <span>@(album.Year?.ToString() ?? "") · @album.Tracks tracks ↗</span>
+   </a>
+  }
+  @if(albums.Count == 0) { <p>No tagged albums are available for this artist.</p> }
+  <h2>Songs in our library</h2>
+  @foreach (var song in songs)
+  {
+   <div class="track-row"><div><a class="track-title" href="/songs/@song.Id">@song.Title</a><span class="muted">@song.Album</span></div></div>
+  }
+  @if (songs.Count == 100) { <p class="muted">Showing the first 100 songs. <a href="@("/library?q=" + Uri.EscapeDataString(artist.Name))">Search for more</a>.</p> }
+ }
 </section>
 @code {
-    [Parameter] public long Id { get; set; }
-    private Artist? artist;
-    private List<Song> songs = [];
-    private string title = "The music library";
-    private string? error;
-    protected override async Task OnParametersSetAsync()
-    {
-        artist = null; songs = []; error = null;
-        if (!Repository.Configured) { error = "The music library is getting connected. Please check back soon."; return; }
-        try
-        {
-            artist = (await Repository.Artists(id: Id)).FirstOrDefault();
-            songs = await Repository.Songs(artist: Id);
-            title = artist?.Name ?? "Artist not found";
-            if (artist is null) error = "This entry could not be found in the library.";
-        }
-        catch (MySqlConnector.MySqlException) { error = "The library is temporarily unavailable."; }
-    }
+ [Parameter] public long Id { get; set; }
+ private Artist? artist;
+ private List<Song> songs = [];
+ private List<(string Name, int Tracks, int? Year)> albums = [];
+ private string title = "Artist";
+ private string? error;
+ protected override async Task OnParametersSetAsync()
+ {
+  artist = null; songs = []; albums = []; error = null;
+  if (!Repository.Configured) { error = "The music library is getting connected."; return; }
+  try
+  {
+   artist = (await Repository.Artists(id: Id)).FirstOrDefault();
+   title = artist?.Name ?? "Artist not found";
+   if (artist is null) { error = "Artist not found."; return; }
+   albums = await Repository.ArtistAlbums(Id);
+   songs = await Repository.Songs(artist: Id);
+  }
+  catch (Npgsql.NpgsqlException) { error = "The artist catalog is temporarily unavailable."; }
+ }
 }

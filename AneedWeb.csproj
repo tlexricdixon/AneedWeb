@@ -10,12 +10,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="Npgsql" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Update="Data/feed.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="Aneed.ContentEnrichment/**/*.cs" />
     <Content Remove="tests/**" />
   </ItemGroup>
 </Project>
