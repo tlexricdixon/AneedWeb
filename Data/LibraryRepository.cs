@@ -209,7 +209,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
     public async Task<List<Song>> AlbumSongs(long artistId, string album)
     {
         await using var connection = await Open();
-        await using var cmd = new NpgsqlCommand(SongSelect + """
+        await using var cmd = new NpgsqlCommand(SongSelect + "\n" + """
             WHERE c.artist_id = @artist AND c.album = @album
             ORDER BY c.track_number NULLS LAST, c.title, c.sam_song_id
             """, connection);
