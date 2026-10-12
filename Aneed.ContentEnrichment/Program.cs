@@ -49,8 +49,13 @@ foreach (var (id, name) in jobs)
             })
             .ToList();
         var matches = candidates.Where(a => Normalize(a.Name) == Normalize(name) ||
-                                             Normalize(a.SortName) == Normalize(name)).ToList();
-        if (matches.Count != 1 || matches[0].Score < 95)
+                                             Normalize(a.SortName) == Normalize(name))
+            .OrderByDescending(a => a.Score).ToList();
+        // Accept a standout match, but never use an arbitrary top result.
+        // If names collide at similar scores, require human review.
+        var clearWinner = matches.Count > 0 && matches[0].Score >= 95 &&
+            (matches.Count == 1 || matches[0].Score - matches[1].Score >= 15);
+        if (!clearWinner)
         {
             Console.WriteLine($"REVIEW: {name} ({matches.Count} exact candidates)");
             foreach (var candidate in candidates)
@@ -129,6 +134,10 @@ static string SearchName(string value)
     value = value.Trim();
     if (value.EndsWith(", the", StringComparison.OrdinalIgnoreCase))
         return "The " + value[..^5];
+    // The B-52's is indexed as The B-52s in MusicBrainz.
+    // Removing this band's apostrophe makes the initial quoted query find it.
+    if (value.Equals("The B-52's", StringComparison.OrdinalIgnoreCase))
+        return "The B-52s";
     return value;
 }
 
