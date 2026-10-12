@@ -32,5 +32,31 @@ if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", create
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseAntiforgery();
 app.MapStaticAssets();
+// Local diagnostics for Razor route registration and request guarding.
+// Never expose route introspection outside local development.
+app.MapGet("/internal/route-check", (HttpContext context) =>
+{
+    var localHost = context.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                    context.Request.Host.Host is "127.0.0.1" or "::1" or "[::1]";
+    if (!app.Environment.IsDevelopment() || !localHost)
+        return Results.NotFound();
+
+    var routes = typeof(App).Assembly.GetTypes()
+        .SelectMany(type => type.GetCustomAttributes(
+            typeof(Microsoft.AspNetCore.Components.RouteAttribute), false)
+            .Cast<Microsoft.AspNetCore.Components.RouteAttribute>()
+            .Select(attribute => new { Component = type.FullName, Route = attribute.Template }))
+        .Where(route => route.Route.Contains("artist", StringComparison.OrdinalIgnoreCase))
+        .OrderBy(route => route.Route)
+        .ToArray();
+
+    return Results.Json(new
+    {
+        Environment = app.Environment.EnvironmentName,
+        Host = context.Request.Host.ToString(),
+        RemoteIp = context.Connection.RemoteIpAddress?.ToString(),
+        Routes = routes
+    });
+});
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
