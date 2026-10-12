@@ -16,20 +16,31 @@
  <div class="signal-line"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
  <div><div class="section-heading"><div><span class="eyebrow">FRESH FROM THE AIRWAVES</span><h2>Recently played</h2></div><a href="/recently-played">View history ↗</a></div>@foreach(var recentTrack in state.Recent.Take(4)){ <TrackRow Item="recentTrack" Library="songs" /> }@if(state.Recent.Count==0){<p class="muted">Recent tracks will appear when Live365 updates.</p>}</div>
 </section>
-<section class="journey content-section"><div><span class="eyebrow">FOLLOW THE SIGNAL / FEATURED JOURNEY</span><h2>Control.<br />Suppression.<br /><em>Escape.</em></h2><p>Four songs. One thread.<br />A journey from the weight of silence to the moment you break free.</p><a href="/library" class="text-link">Explore the library ↗</a></div><div class="journey-tracks">@foreach(var title in journey){<a href="@("/library?q="+Uri.EscapeDataString(title))"><span>@((Array.IndexOf(journey,title)+1).ToString("00"))</span><strong>@title</strong><span>↗</span></a>}<p class="muted">An editorial listening journey, outside the broadcast schedule.</p></div></section>
-<section id="shows" class="content-section"><div class="section-heading"><div><span class="eyebrow">MORE THAN A PLAYLIST</span><h2>Inside the signal</h2></div><span class="muted">Programming in development</span></div><div class="show-grid">@foreach(var show in shows){<article class="show-card"><span class="eyebrow">PROGRAMMING CONCEPT</span><h3>@show.Item1</h3><p>@show.Item2</p><span class="show-arrow">↗</span></article>}</div></section>
-<section id="feed" class="content-section"><div class="section-heading"><div><span class="eyebrow">NOTES FROM THE OTHER SIDE</span><h2>Static dispatches</h2></div><a href="/feed">The feed ↗</a></div>@if(posts.Count>0){<div class="feed-grid">@foreach(var post in posts){<a class="feed-card" href="/feed/@post.Id"><img src="@(post.Image ?? "/images/station-cover.png")" alt="" loading="lazy"/><span class="eyebrow">@post.Type / @post.Published.ToString("MMM dd, yyyy")</span><h3>@post.Title</h3><p>@post.Excerpt</p><span>Read transmission ↗</span></a>}</div>}else{<div class="empty-feed"><span class="eyebrow">THE TRANSMISSION LOG</span><h3>Every song has a story.<br />This is where we’ll tell ours.</h3><p>Station updates, artist spotlights, and journeys through the music. New dispatches are coming.</p></div>}</section>
+<section class="content-section catalog-entry" id="catalog">
+ <span class="eyebrow">THE ANEED MUSIC LIBRARY</span>
+ <h2>Find your next song.</h2>
+ <form class="search-form" method="get" action="/library">
+  <label for="home-search" class="sr-only">Search songs or artists</label>
+  <input id="home-search" name="q" maxlength="200" placeholder="Search songs or artists…" />
+  <button class="button" type="submit">Search ↗</button>
+ </form>
+ <h3>Browse artists A–Z</h3>
+ <nav class="alphabet" aria-label="Browse artists alphabetically">
+ @foreach (var letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+ {
+  <a href="@($"/artists?letter={letter}")">@letter</a>
+ }
+ </nav>
+</section>
 <section id="about" class="about content-section"><span class="eyebrow">THE SHADOW AND THE SMOKE</span><h2>A station for the songs<br />that <em>stay with you.</em></h2><p>Aneed Static System is independent internet radio with no genre walls. Old discoveries. New obsessions. Music that remembers the fight.</p><div id="contact"><a class="text-link" href="https://live365.com/station/Aneed-Static-System-a30355" target="_blank" rel="noopener">Find our station and contact links on Live365 ↗</a></div></section>
 @code {
  private CancellationTokenSource stop=new(); private Task? polling;
- private Broadcast state=new(false,null,[],null); private List<Song> songs=[]; private List<FeedPost> posts=[];
+ private Broadcast state=new(false,null,[],null); private List<Song> songs=[];
  private Song? Match(Track track)=>songs.FirstOrDefault(s=>s.Title.Equals(track.Title,StringComparison.OrdinalIgnoreCase)&&s.Artist.Equals(track.Artist,StringComparison.OrdinalIgnoreCase));
  private string SongLink(Track track)=>Match(track) is {} song ? $"/songs/{song.Id}" : "/library?q="+Uri.EscapeDataString(track.Title);
  private string ArtistLink(Track track)=>Match(track) is {} song ? $"/artists/{song.ArtistId}" : "/library?q="+Uri.EscapeDataString(track.Artist);
- private string[] journey=["Voices Carry","Head Like a Hole","Bottom of a Bottle","The Walk"];
- private (string,string)[] shows=[("Signal Found","Unexpected connections. Songs that find you when you need them."),("Friday Night Sock Hop","Turn it up. Make room. Let the good ones move you."),("Four-Song Journeys","Different artists. A shared feeling. Follow the thread."),("The Revolution Will Be Televised","Music that challenges the frame and changes the conversation."),("Celebrate Sobriety","A hit of the day for the road forward.")];
  protected override Task OnAfterRenderAsync(bool first){if(first)polling=Poll();return Task.CompletedTask;}
  private async Task Poll(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30));while(await timer.WaitForNextTickAsync(stop.Token)){state=await Broadcast.Get();if(Library.Configured)try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Npgsql.NpgsqlException){}await InvokeAsync(StateHasChanged);}}catch(OperationCanceledException){}}
  public async ValueTask DisposeAsync(){await stop.CancelAsync();if(polling is not null)await polling;stop.Dispose();}
- protected override async Task OnInitializedAsync(){state=await Broadcast.Get();posts=await Library.Posts();if(Library.Configured){try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Npgsql.NpgsqlException){}}}
+ protected override async Task OnInitializedAsync(){state=await Broadcast.Get();if(Library.Configured){try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Npgsql.NpgsqlException){}}}
 }

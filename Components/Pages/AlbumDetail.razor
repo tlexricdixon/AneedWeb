@@ -1,0 +1,40 @@
+@page "/artists/{ArtistId:long}/albums/{AlbumName}"
+@inject LibraryRepository Repository
+<PageTitle>@title — Aneed Static System</PageTitle>
+<section class="content-section page">
+ <a href="/artists/@ArtistId" class="text-link">← Back to artist</a>
+ @if (error is not null) { <p class="notice">@error</p> }
+ else
+ {
+  <span class="eyebrow">ALBUM / IN THE ANEED LIBRARY</span>
+  <h1>@title</h1>
+  <p><a href="/artists/@ArtistId">@artistName</a></p>
+  <p class="muted">Songs available in our library, not necessarily a complete album tracklist.</p>
+  @foreach (var song in songs)
+  {
+   <div class="track-row"><div><a class="track-title" href="/songs/@song.Id">@song.Title</a></div><span class="muted">@(song.Year?.ToString() ?? "")</span></div>
+  }
+ }
+</section>
+@code {
+ [Parameter] public long ArtistId { get; set; }
+ [Parameter] public string AlbumName { get; set; } = "";
+ private string title = "";
+ private string artistName = "";
+ private string? error;
+ private List<Song> songs = [];
+ protected override async Task OnParametersSetAsync()
+ {
+  error = null; songs = []; title = AlbumName;
+  if (!Repository.Configured) { error = "The catalog is temporarily unavailable."; return; }
+  try
+  {
+   var artist = (await Repository.Artists(id: ArtistId)).FirstOrDefault();
+   if (artist is null) { error = "Artist not found."; return; }
+   artistName = artist.Name;
+   songs = await Repository.AlbumSongs(ArtistId, AlbumName);
+   if (songs.Count == 0) error = "No songs found for this album in our library.";
+  }
+  catch (Npgsql.NpgsqlException) { error = "The album catalog is temporarily unavailable."; }
+ }
+}
