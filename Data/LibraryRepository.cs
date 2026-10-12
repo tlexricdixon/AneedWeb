@@ -37,8 +37,8 @@ public class LibraryRepository(IWebHostEnvironment environment)
     {
         await using var c = await Open();
         await using var cmd = new NpgsqlCommand(SongSelect + """
-            WHERE (@id::bigint IS NULL OR c.sam_song_id = @id)
-              AND (@artist::bigint IS NULL OR c.artist_id = @artist)
+            WHERE (@id IS NULL OR c.sam_song_id = @id)
+              AND (@artist IS NULL OR c.artist_id = @artist)
               AND (@q = '' OR strpos(lower(c.title), lower(@q)) > 0
                            OR strpos(lower(c.artist), lower(@q)) > 0)
             ORDER BY c.artist,c.title,c.sam_song_id LIMIT 100
@@ -93,7 +93,7 @@ public class LibraryRepository(IWebHostEnvironment environment)
             SELECT a.id,a.name,count(c.id),count(DISTINCT nullif(c.album,''))
             FROM music.artists a
             INNER JOIN music.catalog_tracks c ON c.artist_id=a.id
-            WHERE (@id::bigint IS NULL OR a.id=@id)
+            WHERE (@id IS NULL OR a.id=@id)
               AND (@q='' OR strpos(lower(a.name),lower(@q))>0)
             GROUP BY a.id,a.name ORDER BY a.name LIMIT 100
             """, c);
