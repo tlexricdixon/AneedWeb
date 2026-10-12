@@ -9,13 +9,13 @@ public record Song(long Id, string Title, long ArtistId, string Artist, string A
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
 // Read-only PostgreSQL catalog. No direct dependency on SAM MariaDB.
-public class LibraryRepository(IConfiguration config, IWebHostEnvironment environment)
+public class LibraryRepository(IWebHostEnvironment environment)
 {
-    public bool Configured => !string.IsNullOrWhiteSpace(config.GetConnectionString("Library"));
+    public bool Configured => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
     private async Task<NpgsqlConnection> Open()
     {
         if (!Configured) throw new InvalidOperationException("PostgreSQL catalog is not configured.");
-        var connection = new NpgsqlConnection(config.GetConnectionString("Library"));
+        var connection = new NpgsqlConnection(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));
         try { await connection.OpenAsync(); return connection; }
         catch { await connection.DisposeAsync(); throw; }
     }
@@ -42,8 +42,8 @@ public class LibraryRepository(IConfiguration config, IWebHostEnvironment enviro
                            OR strpos(lower(c.artist), lower(@q)) > 0)
             ORDER BY c.artist,c.title,c.sam_song_id LIMIT 100
             """, c);
-        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("artist", (object?)artist ?? DBNull.Value);
+        cmd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)id ?? DBNull.Value;
+        cmd.Parameters.Add("artist", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)artist ?? DBNull.Value;
         cmd.Parameters.AddWithValue("q", query.Trim());
         await using var r = await cmd.ExecuteReaderAsync();
         var songs = new List<Song>();
@@ -80,7 +80,7 @@ public class LibraryRepository(IConfiguration config, IWebHostEnvironment enviro
               AND (@q='' OR strpos(lower(a.name),lower(@q))>0)
             GROUP BY a.id,a.name ORDER BY a.name LIMIT 100
             """, c);
-        cmd.Parameters.AddWithValue("id", (object?)id ?? DBNull.Value);
+        cmd.Parameters.Add("id", NpgsqlTypes.NpgsqlDbType.Bigint).Value = (object?)id ?? DBNull.Value;
         cmd.Parameters.AddWithValue("q", query.Trim());
         await using var r = await cmd.ExecuteReaderAsync();
         var results = new List<Artist>();
