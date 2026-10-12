@@ -7,6 +7,7 @@ namespace AneedWeb.Data;
 // Public website models. Song IDs use stable SAM IDs; artist IDs use music.artists.id.
 public record Artist(long Id, string Name, string Biography, string? Image);
 public record Song(long Id, string Title, long ArtistId, string Artist, string Album, int? Year, string Description, string? Artwork, string Genre, string Composer, string Label, string Isrc);
+public record ArtistContentDraft(long ArtistId, string ArtistName, string Summary, string SourceUrl, string LicenseNotes, string ReviewStatus);
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
 // Read-only PostgreSQL catalog. No direct dependency on SAM MariaDB.
@@ -219,6 +220,29 @@ public class LibraryRepository(IWebHostEnvironment environment)
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync()) songs.Add(ReadSong(reader));
         return songs;
+    }
+
+    // Draft text is only consumed by the development-only, loopback-only preview.
+    public async Task<ArtistContentDraft?> ArtistContentPreview(long artistId)
+    {
+        await using var connection = await Open();
+        await using var cmd = new NpgsqlCommand("""
+            SELECT a.id, a.name, c.summary, c.summary_source_url,
+                   c.license_notes, c.review_status
+            FROM music.artist_content c
+            JOIN music.artists a ON a.id = c.artist_id
+            WHERE c.artist_id = @id
+            """, connection);
+        cmd.Parameters.AddWithValue("id", artistId);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return new ArtistContentDraft(
+            reader.GetInt64(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? "" : reader.GetString(2),
+            reader.IsDBNull(3) ? "" : reader.GetString(3),
+            reader.IsDBNull(4) ? "" : reader.GetString(4),
+            reader.GetString(5));
     }
 
     public async Task<List<FeedPost>> Posts(long? id = null)
