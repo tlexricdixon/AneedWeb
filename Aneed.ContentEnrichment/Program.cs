@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,7 +20,8 @@ var jobs = new List<(long Id, string Name)>();
 await using (var cmd = new NpgsqlCommand("""
     SELECT j.artist_id, a.name FROM music.enrichment_jobs j
     JOIN music.artists a ON a.id=j.artist_id
-    WHERE j.status IN ('pending','error')
+    WHERE (j.status IN ('pending','error')
+       OR (j.status='processing' AND j.updated_at < now()-interval '20 minutes'))
       AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= now())
     ORDER BY a.name LIMIT 20
     """, db))
@@ -125,9 +127,39 @@ static string Normalize(string value)
 }
 static async Task<JsonDocument> Fetch(HttpClient client, string url)
 {
-    using var response = await client.GetAsync(url);
-    response.EnsureSuccessStatusCode();
-    return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    const int maxAttempts = 4;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            using var response = await client.GetAsync(url);
+            if ((response.StatusCode == HttpStatusCode.TooManyRequests ||
+                 response.StatusCode == HttpStatusCode.RequestTimeout ||
+                 (int)response.StatusCode >= 500) && attempt < maxAttempts)
+            {
+                var retryAfter = response.Headers.RetryAfter;
+                var delay = retryAfter?.Delta ??
+                    (retryAfter?.Date is { } when ? when - DateTimeOffset.UtcNow : TimeSpan.Zero);
+                if (delay <= TimeSpan.Zero)
+                    delay = TimeSpan.FromSeconds(2 * (1 << (attempt - 1)));
+                delay = TimeSpan.FromSeconds(Math.Clamp(delay.TotalSeconds, 1, 60));
+                Console.WriteLine($"HTTP {(int)response.StatusCode}; retry {attempt}/{maxAttempts - 1} in {delay.TotalSeconds:0}s");
+                await Task.Delay(delay);
+                continue;
+            }
+            response.EnsureSuccessStatusCode();
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        }
+        catch (Exception ex) when (
+            ex is HttpRequestException || ex is TaskCanceledException)
+        {
+            if (attempt == maxAttempts) throw;
+            var delay = TimeSpan.FromSeconds(2 * (1 << (attempt - 1)));
+            Console.WriteLine($"Transient request failure ({ex.GetType().Name}); retry {attempt}/{maxAttempts - 1} in {delay.TotalSeconds:0}s");
+            await Task.Delay(delay);
+        }
+    }
+    throw new InvalidOperationException("HTTP retry loop ended unexpectedly.");
 }
 static async Task UpdateJob(NpgsqlConnection db, long id, string status, string? error)
 {
