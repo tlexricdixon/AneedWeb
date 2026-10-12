@@ -155,6 +155,72 @@ public class LibraryRepository(IWebHostEnvironment environment)
         return results;
     }
 
+
+    public async Task<(List<Artist> Artists, long Total)> ArtistDirectory(
+        string letter, int page = 1, int pageSize = 30)
+    {
+        letter = (letter ?? "A").Trim().ToUpperInvariant();
+        if (letter.Length != 1 || letter[0] < 'A' || letter[0] > 'Z')
+            letter = "A";
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        await using var connection = await Open();
+        const string filter = """
+            FROM music.artists a
+            WHERE EXISTS (SELECT 1 FROM music.catalog_tracks t WHERE t.artist_id = a.id)
+              AND left(upper(a.name), 1) = @letter
+            """;
+        await using var count = new NpgsqlCommand("SELECT count(*) " + filter, connection);
+        count.Parameters.AddWithValue("letter", letter);
+        var total = (long)(await count.ExecuteScalarAsync() ?? 0L);
+
+        await using var cmd = new NpgsqlCommand(
+            "SELECT a.id, a.name " + filter +
+            " ORDER BY a.name, a.id LIMIT @limit OFFSET @offset", connection);
+        cmd.Parameters.AddWithValue("letter", letter);
+        cmd.Parameters.AddWithValue("limit", pageSize);
+        cmd.Parameters.AddWithValue("offset", (page - 1) * pageSize);
+        var artists = new List<Artist>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            artists.Add(new Artist(reader.GetInt64(0), reader.GetString(1), "", null));
+        return (artists, total);
+    }
+
+    public async Task<List<(string Name, int Tracks, int? Year)>> ArtistAlbums(long artistId)
+    {
+        await using var connection = await Open();
+        await using var cmd = new NpgsqlCommand("""
+            SELECT c.album, count(*)::integer, min(c.album_year)
+            FROM music.catalog_tracks c
+            WHERE c.artist_id = @artist AND btrim(c.album) <> ''
+            GROUP BY c.album
+            ORDER BY min(c.album_year) NULLS LAST, c.album
+            """, connection);
+        cmd.Parameters.AddWithValue("artist", artistId);
+        var albums = new List<(string Name, int Tracks, int? Year)>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            albums.Add((reader.GetString(0), reader.GetInt32(1),
+                reader.IsDBNull(2) ? null : reader.GetInt32(2)));
+        return albums;
+    }
+
+    public async Task<List<Song>> AlbumSongs(long artistId, string album)
+    {
+        await using var connection = await Open();
+        await using var cmd = new NpgsqlCommand(SongSelect + """
+            WHERE c.artist_id = @artist AND c.album = @album
+            ORDER BY c.track_number NULLS LAST, c.title, c.sam_song_id
+            """, connection);
+        cmd.Parameters.AddWithValue("artist", artistId);
+        cmd.Parameters.AddWithValue("album", album);
+        var songs = new List<Song>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) songs.Add(ReadSong(reader));
+        return songs;
+    }
+
     public async Task<List<FeedPost>> Posts(long? id = null)
     {
         var path = Path.Combine(environment.ContentRootPath, "Data", "feed.json");
