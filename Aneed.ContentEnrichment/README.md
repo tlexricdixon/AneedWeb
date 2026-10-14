@@ -68,3 +68,29 @@ Source Wikipedia text is preserved separately. AI rewriting does not automatical
 ## Voice prompt v2
 
 The writer now uses verified song titles from catalog_tracks only as optional context (not lyrical interpretations), a more factual 90–120-word prompt, and one corrective pass for drafts outside the 80–130-word acceptance range. No track_analysis JSON is consumed yet. The two-artist test remains ABBA and Quarterflash. Dry run before inserting drafts; existing editorial rows are never overwritten.
+
+
+## Import Colab CLAP audio embeddings
+
+Run locally on the Nitro after creating `music.audio_embeddings` (including the
+unique constraint on `source_identity, model_name, analysis_version`) and installing pgvector.
+This uses the existing .NET 10 enrichment worker and `ANEED_POSTGRES`; it does **not**
+require the MusicBrainz contact email or any Ollama calls.
+
+```powershell
+dotnet run --project Aneed.ContentEnrichment -- --import-clap "C:\\path\\to\\clap_embeddings_v1.jsonl" --dry-run
+dotnet run --project Aneed.ContentEnrichment -- --import-clap "C:\\path\\to\\clap_embeddings_v1.jsonl"
+```
+
+The importer expects 512-dimensional CLAP JSONL records, retains clip offsets,
+section vectors and description scores as JSONB, and upserts each model/version/identity.
+It intentionally leaves `catalog_track_id` alone: a Colab file identity is **not**
+a SAM song ID. Validate the catalog match separately before setting that foreign key.
+A dry run validates without connecting to PostgreSQL.
+
+```sql
+SELECT count(*) AS total, count(catalog_track_id) AS matched
+FROM music.audio_embeddings;
+```
+
+Avoid committing audio files, JSONL outputs, or connection strings to this repository.
