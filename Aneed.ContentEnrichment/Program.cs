@@ -1,3 +1,6 @@
+if (args.Contains("--import-clap", StringComparer.OrdinalIgnoreCase))
+    return await ClapImporter.Run(args);
+
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
