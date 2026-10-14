@@ -29,7 +29,27 @@ internal static class ClapImporter
         }
 
         await using NpgsqlConnection? db = dryRun ? null : new NpgsqlConnection(connectionString);
-        if (db is not null) await db.OpenAsync();
+        string? vectorType = null;
+        if (db is not null)
+        {
+            await db.OpenAsync();
+            // Discover the actual schema of the target column's pgvector type.
+            // PostgreSQL extensions need not be installed in the current search_path.
+            await using var typeCommand = new NpgsqlCommand("""
+                SELECT format('%I.%I', ns.nspname, typ.typname)
+                FROM pg_attribute attr
+                JOIN pg_type typ ON typ.oid = attr.atttypid
+                JOIN pg_namespace ns ON ns.oid = typ.typnamespace
+                WHERE attr.attrelid = 'music.audio_embeddings'::regclass
+                  AND attr.attname = 'embedding'
+                  AND NOT attr.attisdropped
+                  AND typ.typname = 'vector'
+                """, db);
+            vectorType = (string?)await typeCommand.ExecuteScalarAsync()
+                ?? throw new InvalidOperationException(
+                    "music.audio_embeddings.embedding is not a pgvector column.");
+            Console.WriteLine($"Resolved pgvector column type: {vectorType}");
+        }
 
         var imported = 0;
         var invalid = 0;
@@ -69,10 +89,10 @@ internal static class ClapImporter
 
                 if (db is not null)
                 {
-                    await using var cmd = new NpgsqlCommand("""
+                    await using var cmd = new NpgsqlCommand($"""
                         INSERT INTO music.audio_embeddings
                             (source_identity, source_path, model_name, analysis_version, embedding, sections)
-                        VALUES (@identity, @path, @model, @version, @embedding::vector, @sections)
+                        VALUES (@identity, @path, @model, @version, @embedding::{vectorType}, @sections)
                         ON CONFLICT (source_identity, model_name, analysis_version) DO UPDATE SET
                             source_path = EXCLUDED.source_path,
                             embedding = EXCLUDED.embedding,
