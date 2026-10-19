@@ -1,11 +1,11 @@
-if (args.Contains("--import-clap", StringComparer.OrdinalIgnoreCase))
-    return await ClapImporter.Run(args);
-
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Npgsql;
+
+if (args.Contains("--import-clap", StringComparer.OrdinalIgnoreCase))
+    return await ClapImporter.Run(args);
 
 if (args.Contains("--rewrite", StringComparer.OrdinalIgnoreCase))
     return await EditorialRewriter.Run(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase));
