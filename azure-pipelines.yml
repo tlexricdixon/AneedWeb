@@ -41,3 +41,12 @@ steps:
     artifact: 'AneedWeb'
     publishLocation: 'pipeline'
 
+
+- task: AzureWebApp@1
+  displayName: 'Deploy AneedWeb to Azure'
+  inputs:
+    azureSubscription: 'TLEX-Azure'
+    appType: 'webApp'
+    appName: 'tlex-aneedweb'
+    package: '$(Build.ArtifactStagingDirectory)\publish'
+
