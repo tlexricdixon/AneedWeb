@@ -43,10 +43,11 @@ steps:
 
 
 - task: AzureWebApp@1
-  displayName: 'Deploy AneedWeb to Azure'
+  displayName: 'Deploy AneedWeb to Linux App Service'
   inputs:
     azureSubscription: 'TLEX-Azure'
-    appType: 'webApp'
+    appType: 'webAppLinux'
     appName: 'tlex-aneedweb'
-    package: '$(Build.ArtifactStagingDirectory)\publish'
+    runtimeStack: 'DOTNETCORE|10.0'
+    package: '$(Build.ArtifactStagingDirectory)/publish'
 
