@@ -11,9 +11,9 @@ public record ArtistEditorialDraft(string Body, string Status, string Model, str
 public record ArtistContentDraft(long ArtistId, string ArtistName, string Summary, string SourceUrl, string LicenseNotes, string ReviewStatus);
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
-public class LibraryRepository(IWebHostEnvironment environment)
+public class LibraryRepository(IWebHostEnvironment environment, IConfiguration configuration)
 {
-    private readonly AzureSqlCatalogRepository catalog = new();
+    private readonly AzureSqlCatalogRepository catalog = new(configuration);
 
     public bool Configured => catalog.Configured;
     public bool PostgresConfigured => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES"));

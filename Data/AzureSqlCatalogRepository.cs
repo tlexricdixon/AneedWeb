@@ -11,9 +11,10 @@ public sealed class AzureSqlCatalogRepository
     private const int DefaultPageSize = 100;
     private readonly string? connectionString;
 
-    public AzureSqlCatalogRepository()
+    public AzureSqlCatalogRepository(IConfiguration configuration)
     {
-        connectionString = Environment.GetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION");
+        connectionString = configuration.GetConnectionString(
+            "ANEED_AZURE_SQL_CONNECTION");
     }
 
     public bool Configured => !string.IsNullOrWhiteSpace(connectionString);
