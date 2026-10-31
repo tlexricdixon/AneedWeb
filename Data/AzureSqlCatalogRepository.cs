@@ -13,8 +13,9 @@ public sealed class AzureSqlCatalogRepository
 
     public AzureSqlCatalogRepository(IConfiguration configuration)
     {
-        connectionString = configuration.GetConnectionString(
-            "ANEED_AZURE_SQL_CONNECTION");
+        connectionString =
+            configuration.GetConnectionString("ANEED_AZURE_SQL_CONNECTION")
+            ?? Environment.GetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION");
     }
 
     public bool Configured => !string.IsNullOrWhiteSpace(connectionString);
