@@ -17,7 +17,6 @@
   <ItemGroup>
     <Content Update="Data/feed.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="tests/**/*.cs" />
-    <Compile Remove="Aneed.ContentEnrichment/**/*.cs" />
     <Content Remove="tests/**" />
   </ItemGroup>
 </Project>
