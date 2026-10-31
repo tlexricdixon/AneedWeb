@@ -1,6 +1,7 @@
 using AneedWeb.Services;
 using Microsoft.Data.SqlClient;
 using System.Data;
+using System.Globalization;
 using System.Text;
 
 namespace AneedWeb.Data;
@@ -43,19 +44,52 @@ public sealed class AzureSqlCatalogRepository
     private static Song ReadSong(SqlDataReader reader)
     {
         var artist = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        var title = reader.IsDBNull(2) ? "" : reader.GetString(2);
+        var songId = ReadSongId(reader, artist, title);
         return new Song(
-            Convert.ToInt64(reader.GetValue(0)),
-            reader.IsDBNull(2) ? "" : reader.GetString(2),
+            songId,
+            title,
             ArtistIdentity.FromName(artist),
             artist,
             reader.IsDBNull(3) ? "" : reader.GetString(3),
-            reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetValue(5)),
+            ReadNullableInt(reader, 5),
             "",
             null,
             reader.IsDBNull(4) ? "" : reader.GetString(4),
             "",
             "",
             reader.IsDBNull(6) ? "" : reader.GetString(6));
+    }
+
+    private static long ReadSongId(SqlDataReader reader, string artist, string title)
+    {
+        if (reader.IsDBNull(0))
+            throw new InvalidDataException(
+                $"Catalog row has NULL SamSongId. Artist='{artist}', Title='{title}'.");
+
+        var rawValue = reader.GetValue(0);
+        var text = Convert.ToString(rawValue, CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidDataException(
+                $"Catalog row has an empty SamSongId. Artist='{artist}', Title='{title}'.");
+
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var songId))
+            return songId;
+
+        throw new InvalidDataException(
+            $"Catalog row has an invalid SamSongId '{text}'. Artist='{artist}', Title='{title}'.");
+    }
+
+    private static int? ReadNullableInt(SqlDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+            return null;
+
+        var value = reader.GetValue(ordinal);
+        if (value is string text && string.IsNullOrWhiteSpace(text))
+            return null;
+
+        return Convert.ToInt32(value);
     }
 
     public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null,
@@ -211,7 +245,7 @@ public sealed class AzureSqlCatalogRepository
         var albums = new List<(string Name, int Tracks, int? Year)>();
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
-            albums.Add((reader.GetString(0), reader.GetInt32(1), reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2))));
+            albums.Add((reader.GetString(0), reader.GetInt32(1), ReadNullableInt(reader, 2)));
         return albums;
     }
 

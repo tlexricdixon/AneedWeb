@@ -29,7 +29,7 @@ const assert = require('node:assert/strict');
   await page.locator('.track-title').filter({ hasText: 'Radio Ga Ga' }).click();
   await page.getByRole('heading', { name: 'Radio Ga Ga', exact: true }).waitFor();
   assert.match(await page.locator('.song-facts').innerText(), /Roger Taylor/);
-  assert.equal(await page.locator('.detail img').getAttribute('src'), '/images/station.webp');
+  assert.equal(await page.locator('.detail img').getAttribute('src'), '/images/station.png');
   await page.locator('.detail a').filter({ hasText: 'Queen' }).click();
   await page.getByRole('heading', { name: 'Queen', exact: true }).waitFor();
   assert.match(await page.locator('.prose').innerText(), /2 tracks across 2 albums/);

@@ -13,5 +13,5 @@ window.stationPlayer = {
 
 document.addEventListener('error', event => {
  const target = event.target;
- if (target instanceof HTMLImageElement && !target.src.endsWith('/images/station.webp')) target.src = '/images/station.webp';
+ if (target instanceof HTMLImageElement && !target.src.endsWith('/images/station.png')) target.src = '/images/station.png';
 }, true);

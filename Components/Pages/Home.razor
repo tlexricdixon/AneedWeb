@@ -10,7 +10,7 @@
 </section>
 <section class="content-section broadcast-grid">
  <div class="now"><div class="section-heading"><span class="eyebrow">THE LIVE SIGNAL</span><span class="live-badge">@(state.Playing ? "● ON AIR" : "STATION")</span></div><h2>Now playing</h2>
- @if(state.Current is {} track) { <div class="now-track"><img src="@(track.Artwork ?? "/images/station.webp")" alt="Current track artwork" /><div><a class="now-title" href="@SongLink(track)">@track.Title</a><a class="muted" href="@ArtistLink(track)">@track.Artist</a><span class="eyebrow">@(Match(track)?.Album ?? "ANEED STATIC SYSTEM")</span></div></div> }
+ @if(state.Current is {} track) { <div class="now-track"><img src="@(track.Artwork ?? "/images/station.png")" alt="Current track artwork" /><div><a class="now-title" href="@SongLink(track)">@track.Title</a><a class="muted" href="@ArtistLink(track)">@track.Artist</a><span class="eyebrow">@(Match(track)?.Album ?? "ANEED STATIC SYSTEM")</span></div></div> }
  else { <p>The next transmission is waiting. Tune in below.</p> }
  @if(state.Error is not null) { <p class="notice">@state.Error</p> }
  <div class="signal-line"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>

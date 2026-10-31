@@ -1,4 +1,4 @@
-<div class="track-row"><img src="@(Item.Artwork ?? "/images/station.webp")" alt="" loading="lazy" /><div><a class="track-title" href="@SongLink">@Item.Title</a><a class="muted" href="@ArtistLink">@Item.Artist</a></div><time datetime="@Item.Started?.ToString("O")">@(Item.Started?.ToUniversalTime().ToString("HH:mm") ?? "—") <small>UTC</small></time></div>
+<div class="track-row"><img src="@(Item.Artwork ?? "/images/station.png")" alt="" loading="lazy" /><div><a class="track-title" href="@SongLink">@Item.Title</a><a class="muted" href="@ArtistLink">@Item.Artist</a></div><time datetime="@Item.Started?.ToString("O")">@(Item.Started?.ToUniversalTime().ToString("HH:mm") ?? "—") <small>UTC</small></time></div>
 @code {
  [Parameter, EditorRequired] public Track Item { get; set; } = default!;
  [Parameter] public IReadOnlyList<Song> Library { get; set; } = [];

@@ -3,7 +3,7 @@
 @inject IJSRuntime JS
 @inject LibraryRepository Repository
 <div class="persistent-player" id="listen">
- <img class="player-art" src="@(state.Current?.Artwork ?? "/images/station.webp")" alt="Current track artwork" />
+ <img class="player-art" src="@(state.Current?.Artwork ?? "/images/station.png")" alt="Current track artwork" />
  <div class="player-info"><span class="eyebrow">@(state.Error is not null ? "UPDATES UNAVAILABLE" : state.Playing ? "● LIVE ON AIR" : "STATION PLAYER")</span><a class="player-song" href="@SongLink"><strong>@(state.Current?.Title ?? "Aneed Static System")</strong></a><a href="@ArtistLink">@(state.Current?.Artist ?? "The signal is alive.")</a></div>
  <button class="play-button" @onclick="Toggle" aria-label="@(playing ? "Pause live radio" : "Play live radio")">@(playing ? "Ⅱ" : "▶")</button>
  <div class="player-label"><strong>LISTEN LIVE</strong><small>@(playing ? "You’re tuned in" : "Your next discovery is on air")</small></div>
