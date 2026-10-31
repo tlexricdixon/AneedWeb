@@ -19,7 +19,7 @@
  private DotNetObjectReference<LivePlayer>? reference;
  private string SongLink=>match is {} song ? $"/songs/{song.Id}" : Search(state.Current?.Title);
  private string ArtistLink=>match is {} song ? $"/artists/{song.ArtistId}" : Search(state.Current?.Artist);
- private async Task Match(){match=null;if(Repository.Configured && state.Current is {} track)try{match=(await Repository.BroadcastSongs([track])).FirstOrDefault();}catch(Npgsql.NpgsqlException){}}
+ private async Task Match(){match=null;if(Repository.Configured && state.Current is {} track)try{match=(await Repository.BroadcastSongs([track])).FirstOrDefault();}catch(Microsoft.Data.SqlClient.SqlException){}}
  [JSInvokable] public Task PlaybackChanged(bool active,bool failed){playing=active;if(failed)error="The stream was interrupted. Try Play again or open the full player.";return InvokeAsync(StateHasChanged);}
  private readonly CancellationTokenSource stop = new(); private Task? polling;
  protected override async Task OnInitializedAsync() { state=await Broadcast.Get(); await Match(); }

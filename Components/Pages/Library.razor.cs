@@ -1,6 +1,6 @@
 using AneedWeb.Data;
 using Microsoft.AspNetCore.Components;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 
 namespace AneedWeb.Components.Pages;
 
@@ -49,7 +49,7 @@ public partial class Library
             songs = await Repository.Songs(query);
             artists = await Repository.Artists(query);
         }
-        catch (NpgsqlException)
+        catch (SqlException)
         {
             error = "The library is temporarily unavailable. Please try again later.";
         }

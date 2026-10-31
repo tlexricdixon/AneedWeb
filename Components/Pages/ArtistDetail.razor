@@ -45,6 +45,6 @@
    albums = await Repository.ArtistAlbums(Id);
    songs = await Repository.Songs(artist: Id);
   }
-  catch (Npgsql.NpgsqlException) { error = "The artist catalog is temporarily unavailable."; }
+   catch (Microsoft.Data.SqlClient.SqlException) { error = "The artist catalog is temporarily unavailable."; }
  }
 }

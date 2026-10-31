@@ -2,7 +2,7 @@
 
 This initial .NET 10 worker resolves queued artists to MusicBrainz artist IDs, Wikidata IDs and English Wikipedia URLs. It does not copy text, download images, or publish content.
 
-Prerequisites: database migrations 002 and 003 applied to Nitro PostgreSQL; six artists queued in music.enrichment_jobs; ANEED_POSTGRES set.
+Prerequisites: database migrations 002 and 003 applied to Nitro PostgreSQL; six artists queued in music.enrichment_jobs; ANEED_AZURE_SQL_CONNECTION set.
 
 In PowerShell, set a real contact email for polite identification to MusicBrainz and Wikimedia:
 
@@ -74,7 +74,7 @@ The writer now uses verified song titles from catalog_tracks only as optional co
 
 Run locally on the Nitro after creating `music.audio_embeddings` (including the
 unique constraint on `source_identity, model_name, analysis_version`) and installing pgvector.
-This uses the existing .NET 10 enrichment worker and `ANEED_POSTGRES`; it does **not**
+This uses the existing .NET 10 enrichment worker and `ANEED_AZURE_SQL_CONNECTION`; it does **not**
 require the MusicBrainz contact email or any Ollama calls.
 
 ```powershell

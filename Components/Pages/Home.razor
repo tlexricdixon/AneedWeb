@@ -40,7 +40,7 @@
  private string SongLink(Track track)=>Match(track) is {} song ? $"/songs/{song.Id}" : "/library?q="+Uri.EscapeDataString(track.Title);
  private string ArtistLink(Track track)=>Match(track) is {} song ? $"/artists/{song.ArtistId}" : "/library?q="+Uri.EscapeDataString(track.Artist);
  protected override Task OnAfterRenderAsync(bool first){if(first)polling=Poll();return Task.CompletedTask;}
- private async Task Poll(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30));while(await timer.WaitForNextTickAsync(stop.Token)){state=await Broadcast.Get();if(Library.Configured)try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Npgsql.NpgsqlException){}await InvokeAsync(StateHasChanged);}}catch(OperationCanceledException){}}
+ private async Task Poll(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30));while(await timer.WaitForNextTickAsync(stop.Token)){state=await Broadcast.Get();if(Library.Configured)try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Microsoft.Data.SqlClient.SqlException){}await InvokeAsync(StateHasChanged);}}catch(OperationCanceledException){}}
  public async ValueTask DisposeAsync(){await stop.CancelAsync();if(polling is not null)await polling;stop.Dispose();}
- protected override async Task OnInitializedAsync(){state=await Broadcast.Get();if(Library.Configured){try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Npgsql.NpgsqlException){}}}
+ protected override async Task OnInitializedAsync(){state=await Broadcast.Get();if(Library.Configured){try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Microsoft.Data.SqlClient.SqlException){}}}
 }

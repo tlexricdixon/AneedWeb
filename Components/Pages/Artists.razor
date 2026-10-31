@@ -47,6 +47,6 @@
    (artists, total) = await Repository.ArtistDirectory(selected, currentPage);
    totalPages = Math.Max(1, (int)Math.Ceiling(total / 30.0));
   }
-  catch (Npgsql.NpgsqlException) { error = "The artist directory is temporarily unavailable."; }
+  catch (Microsoft.Data.SqlClient.SqlException) { error = "The artist directory is temporarily unavailable."; }
  }
 }

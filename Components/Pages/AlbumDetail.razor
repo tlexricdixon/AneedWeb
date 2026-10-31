@@ -35,6 +35,6 @@
    songs = await Repository.AlbumSongs(ArtistId, AlbumName);
    if (songs.Count == 0) error = "No songs found for this album in our library.";
   }
-  catch (Npgsql.NpgsqlException) { error = "The album catalog is temporarily unavailable."; }
+  catch (Microsoft.Data.SqlClient.SqlException) { error = "The album catalog is temporarily unavailable."; }
  }
 }

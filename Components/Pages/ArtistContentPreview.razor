@@ -61,22 +61,22 @@
             return;
         }
 
-        if (!Repository.Configured)
+        if (!Repository.PostgresConfigured)
         {
             error = "PostgreSQL catalog is not configured.";
             return;
         }
 
-        try
-        {
-            draft = await Repository.ArtistContentPreview(Id);
-            editorial = await Repository.ArtistEditorialPreview(Id);
-            if (draft is null)
-                error = "No biography draft found for this artist.";
-        }
-        catch (Npgsql.NpgsqlException)
-        {
-            error = "Couldn't retrieve the draft from PostgreSQL.";
-        }
+        // try
+        // {
+        //     draft = await Repository.ArtistContentPreview(Id);
+        //     editorial = await Repository.ArtistEditorialPreview(Id);
+        //     if (draft is null)
+        //         error = "No biography draft found for this artist.";
+        // }
+        // catch (Npgsql.NpgsqlException)
+        // {
+        //     error = "Couldn't retrieve the draft from PostgreSQL.";
+        // }
     }
 }

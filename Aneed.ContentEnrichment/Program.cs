@@ -13,11 +13,11 @@ if (args.Contains("--rewrite", StringComparer.OrdinalIgnoreCase))
 if (args.Contains("--content", StringComparer.OrdinalIgnoreCase))
     return await ContentDrafts.Run(args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase));
 
-var connectionString = Environment.GetEnvironmentVariable("ANEED_POSTGRES");
+var connectionString = Environment.GetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION");
 var contact = Environment.GetEnvironmentVariable("ANEED_CONTACT_EMAIL");
 if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(contact))
 {
-    Console.Error.WriteLine("Set ANEED_POSTGRES and ANEED_CONTACT_EMAIL first.");
+    Console.Error.WriteLine("Set ANEED_AZURE_SQL_CONNECTION and ANEED_CONTACT_EMAIL first.");
     return 1;
 }
 var dryRun = args.Contains("--dry-run");
