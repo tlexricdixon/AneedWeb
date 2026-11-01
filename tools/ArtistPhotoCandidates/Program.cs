@@ -77,7 +77,7 @@ foreach (var artist in artists)
             var description=item.TryGetProperty("description",out var d)?d.GetString()??"":"";
             // Name-only matches can be entirely different entities (Poison, KISS).
             // If the description does not identify a musical act, do not emit a candidate.
-            if (!Regex.IsMatch(description, @"\\b(sing(?:er|ing)?|songwriter|musician|music(?:al)?|rock|pop|band|rapper|guitarist|vocalist|composer|recording artist|duo|trio|orchestra|performer|hip.hop|metal|punk|disco|soul|r\\&b|blues|jazz)\\b", RegexOptions.IgnoreCase)) continue;
+            if (!Regex.IsMatch(description, @"\b(sing(?:er|ing)?|songwriter|musician|music(?:al)?|rock|pop|band|rapper|guitarist|vocalist|composer|recording artist|duo|trio|orchestra|performer|hip.hop|metal|punk|disco|soul|r&b|blues|jazz)\b", RegexOptions.IgnoreCase)) continue;
             var entityUrl="https://www.wikidata.org/w/api.php?action=wbgetentities&ids="+Uri.EscapeDataString(id)+"&props=claims&format=json";
             using var entity=JsonDocument.Parse(await GetWithBackoff(entityUrl));
             if (!entity.RootElement.TryGetProperty("entities",out var entities) ||
