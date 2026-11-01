@@ -2,8 +2,9 @@ using System.Text.Json;
 namespace AneedWeb.Services;
 public record Track(string Title, string Artist, string? Artwork, DateTimeOffset? Started);
 public record Broadcast(bool Playing, Track? Current, IReadOnlyList<Track> Recent, string? Error);
-public sealed class BroadcastService(IHttpClientFactory factory, ILogger<BroadcastService> logger)
+public sealed class BroadcastService(IHttpClientFactory factory, ILogger<BroadcastService> logger, IConfiguration configuration)
 {
+    private readonly AneedWeb.Data.AzureSqlCatalogRepository catalog = new(configuration);
     private readonly SemaphoreSlim gate = new(1,1);
     private Broadcast snapshot = new(false,null,[],null);
     private DateTimeOffset refreshed;
@@ -23,6 +24,23 @@ public sealed class BroadcastService(IHttpClientFactory factory, ILogger<Broadca
             }
             catch(Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
             { logger.LogWarning(ex,"Live365 metadata unavailable"); snapshot = snapshot with { Error="Track updates are temporarily unavailable. You can still try the live player." }; }
+            if (catalog.Configured)
+            {
+                try
+                {
+                    var live = await catalog.CurrentNowPlaying();
+                    if (live is not null)
+                        snapshot = snapshot with { Current = live };
+                }
+                catch (Microsoft.Data.SqlClient.SqlException ex)
+                {
+                    logger.LogWarning(ex, "Azure Now Playing unavailable; using Live365 metadata");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    logger.LogWarning(ex, "Azure Now Playing unavailable; using Live365 metadata");
+                }
+            }
             refreshed=DateTimeOffset.UtcNow; return snapshot;
         }
         finally { gate.Release(); }
