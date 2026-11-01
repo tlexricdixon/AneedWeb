@@ -71,23 +71,34 @@ foreach (var artist in artists)
         {
             var label=item.TryGetProperty("label",out var l)?l.GetString():"";
             if (!string.Equals(label,artist,StringComparison.OrdinalIgnoreCase)) continue;
-            var id=item.GetProperty("id").GetString()!;
+            if (!item.TryGetProperty("id",out var idValue)) continue;
+            var id=idValue.GetString();
+            if (string.IsNullOrEmpty(id)) continue;
             var description=item.TryGetProperty("description",out var d)?d.GetString()??"":"";
+            // Name-only matches can be entirely different entities (Poison, KISS).
+            // If the description does not identify a musical act, do not emit a candidate.
+            if (!Regex.IsMatch(description, @"\\b(sing(?:er|ing)?|songwriter|musician|music(?:al)?|rock|pop|band|rapper|guitarist|vocalist|composer|recording artist|duo|trio|orchestra|performer|hip.hop|metal|punk|disco|soul|r\\&b|blues|jazz)\\b", RegexOptions.IgnoreCase)) continue;
             var entityUrl="https://www.wikidata.org/w/api.php?action=wbgetentities&ids="+Uri.EscapeDataString(id)+"&props=claims&format=json";
             using var entity=JsonDocument.Parse(await GetWithBackoff(entityUrl));
-            var claims=entity.RootElement.GetProperty("entities").GetProperty(id).GetProperty("claims");
+            if (!entity.RootElement.TryGetProperty("entities",out var entities) ||
+                !entities.TryGetProperty(id,out var details) ||
+                !details.TryGetProperty("claims",out var claims)) continue;
             if (!claims.TryGetProperty("P18",out var images) || images.GetArrayLength()==0) continue;
-            var filename=images[0].GetProperty("mainsnak").GetProperty("datavalue").GetProperty("value").GetString();
+            if (!images[0].TryGetProperty("mainsnak",out var snak) ||
+                !snak.TryGetProperty("datavalue",out var dataValue) ||
+                !dataValue.TryGetProperty("value",out var imageName)) continue;
+            var filename=imageName.GetString();
             if (string.IsNullOrWhiteSpace(filename)) continue;
             var commonsUrl="https://commons.wikimedia.org/w/api.php?action=query&titles="+Uri.EscapeDataString("File:"+filename)+"&prop=imageinfo&iiprop=url%7Cextmetadata&iiurlwidth=640&format=json";
             using var commons=JsonDocument.Parse(await GetWithBackoff(commonsUrl));
-            var pages=commons.RootElement.GetProperty("query").GetProperty("pages");
+            if (!commons.RootElement.TryGetProperty("query",out var responseQuery) ||
+                !responseQuery.TryGetProperty("pages",out var pages)) continue;
             foreach (var page in pages.EnumerateObject())
             {
-                if (!page.Value.TryGetProperty("imageinfo",out var infos)) continue;
+                if (!page.Value.TryGetProperty("imageinfo",out var infos) || infos.GetArrayLength()==0) continue;
                 var info=infos[0];
-                var imageUrl=info.TryGetProperty("thumburl",out var thumb)?thumb.GetString() : info.GetProperty("url").GetString();
-                var sourceUrl=info.GetProperty("descriptionurl").GetString();
+                var imageUrl=info.TryGetProperty("thumburl",out var thumb)?thumb.GetString() : (info.TryGetProperty("url",out var url)?url.GetString():null);
+                var sourceUrl=info.TryGetProperty("descriptionurl",out var source)?source.GetString():null;
                 var metadata=info.TryGetProperty("extmetadata",out var md)?md:default;
                 string ReadMeta(string key) => metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty(key,out var v) && v.TryGetProperty("value",out var val)
                     ? StripHtml(val.GetString()??"") : "";
@@ -97,7 +108,7 @@ foreach (var artist in artists)
             }
         }
     }
-    catch(Exception ex) when(ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException)
+    catch(Exception ex) when(ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
     {
         Console.Error.WriteLine($"Skipped {artist}: {ex.Message}");
     }
