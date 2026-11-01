@@ -60,6 +60,7 @@ query.Parameters.AddWithValue("@limit",limit);
 var artists=new List<string>();
 await using (var reader=await query.ExecuteReaderAsync())
     while (await reader.ReadAsync()) artists.Add(reader.GetString(0));
+Console.Error.WriteLine($"SQL selected {artists.Count} artists: {string.Join(", ", artists)}");
 Console.WriteLine("Artist\tWikidataId\tWikidataDescription\tCandidateImageUrl\tCreator\tSourceUrl\tLicense\tReviewStatus");
 foreach (var artist in artists)
 {
@@ -67,7 +68,9 @@ foreach (var artist in artists)
     {
         var searchUrl="https://www.wikidata.org/w/api.php?action=wbsearchentities&search="+Uri.EscapeDataString(artist)+"&language=en&limit=5&format=json";
         using var search=JsonDocument.Parse(await GetWithBackoff(searchUrl));
-        foreach (var item in search.RootElement.GetProperty("search").EnumerateArray())
+        var matches=search.RootElement.GetProperty("search").EnumerateArray().ToList();
+        Console.Error.WriteLine($"{artist}: {matches.Count} Wikidata search results");
+        foreach (var item in matches)
         {
             var label=item.TryGetProperty("label",out var l)?l.GetString():"";
             if (!string.Equals(label,artist,StringComparison.OrdinalIgnoreCase)) continue;
@@ -77,13 +80,13 @@ foreach (var artist in artists)
             var description=item.TryGetProperty("description",out var d)?d.GetString()??"":"";
             // Name-only matches can be entirely different entities (Poison, KISS).
             // If the description does not identify a musical act, do not emit a candidate.
-            if (!Regex.IsMatch(description, @"\b(sing(?:er|ing)?|songwriter|musician|music(?:al)?|rock|pop|band|rapper|guitarist|vocalist|composer|recording artist|duo|trio|orchestra|performer|hip.hop|metal|punk|disco|soul|r&b|blues|jazz)\b", RegexOptions.IgnoreCase)) continue;
+            if (!Regex.IsMatch(description, @"\b(sing(?:er|ing)?|songwriter|musician|music(?:al)?|rock|pop|band|rapper|guitarist|vocalist|composer|recording artist|duo|trio|orchestra|performer|hip.hop|metal|punk|disco|soul|r&b|blues|jazz)\b", RegexOptions.IgnoreCase)) { Console.Error.WriteLine($"{artist}: excluded nonmusic entity {id} ({description})"); continue; }
             var entityUrl="https://www.wikidata.org/w/api.php?action=wbgetentities&ids="+Uri.EscapeDataString(id)+"&props=claims&format=json";
             using var entity=JsonDocument.Parse(await GetWithBackoff(entityUrl));
             if (!entity.RootElement.TryGetProperty("entities",out var entities) ||
                 !entities.TryGetProperty(id,out var details) ||
                 !details.TryGetProperty("claims",out var claims)) continue;
-            if (!claims.TryGetProperty("P18",out var images) || images.GetArrayLength()==0) continue;
+            if (!claims.TryGetProperty("P18",out var images) || images.GetArrayLength()==0) { Console.Error.WriteLine($"{artist}: no P18 image for {id}"); continue; }
             if (!images[0].TryGetProperty("mainsnak",out var snak) ||
                 !snak.TryGetProperty("datavalue",out var dataValue) ||
                 !dataValue.TryGetProperty("value",out var imageName)) continue;
@@ -95,7 +98,7 @@ foreach (var artist in artists)
                 !responseQuery.TryGetProperty("pages",out var pages)) continue;
             foreach (var page in pages.EnumerateObject())
             {
-                if (!page.Value.TryGetProperty("imageinfo",out var infos) || infos.GetArrayLength()==0) continue;
+                if (!page.Value.TryGetProperty("imageinfo",out var infos) || infos.GetArrayLength()==0) { Console.Error.WriteLine($"{artist}: Commons has no imageinfo"); continue; }
                 var info=infos[0];
                 var imageUrl=info.TryGetProperty("thumburl",out var thumb)?thumb.GetString() : (info.TryGetProperty("url",out var url)?url.GetString():null);
                 var sourceUrl=info.TryGetProperty("descriptionurl",out var source)?source.GetString():null;
@@ -104,6 +107,7 @@ foreach (var artist in artists)
                     ? StripHtml(val.GetString()??"") : "";
                 var creator=ReadMeta("Artist");
                 var license=ReadMeta("LicenseShortName");
+                Console.Error.WriteLine($"{artist}: candidate image found ({id})");
                 Console.WriteLine(string.Join("\t",new[]{artist,id,description,imageUrl??"",creator,sourceUrl??"",license,"REVIEW IDENTITY AND RIGHTS"}.Select(Clean)));
             }
         }
