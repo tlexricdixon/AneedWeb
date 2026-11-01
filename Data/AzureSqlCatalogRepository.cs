@@ -39,7 +39,11 @@ public sealed class AzureSqlCatalogRepository
     }
 
     private const string SongSelect = """
-        SELECT [SamSongId], [Artist], [Title], [Album], [Genre], [AlbumYear], [Isrc]
+        SELECT [SamSongId], [Artist], [Title], [Album], [Genre], [AlbumYear], [Isrc],
+               (SELECT TOP (1) art.[CoverUrl]
+                FROM [dbo].[SongIdentity] AS sid
+                JOIN [dbo].[SongArtwork] AS art ON art.[AneedId] = sid.[AneedId]
+                WHERE sid.[SamSongId] = [Songs].[SamSongId]) AS [Artwork]
         FROM [dbo].[Songs]
         """;
 
@@ -56,7 +60,7 @@ public sealed class AzureSqlCatalogRepository
             reader.IsDBNull(3) ? "" : reader.GetString(3),
             ReadNullableInt(reader, 5),
             "",
-            null,
+            reader.IsDBNull(7) ? null : reader.GetString(7),
             reader.IsDBNull(4) ? "" : reader.GetString(4),
             "",
             "",
@@ -126,6 +130,18 @@ public sealed class AzureSqlCatalogRepository
         var artwork = reader.IsDBNull(2) ? null : reader.GetString(2);
         // SAM's PlayedAt is local time without an offset; do not mislabel it UTC.
         return new Track(title, artist, artwork, null);
+    }
+
+    public async Task<string?> ArtistImage(string artist)
+    {
+        if (!Configured || string.IsNullOrWhiteSpace(artist))
+            return null;
+        await using var connection = await OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT [ImageUrl] FROM [dbo].[ArtistImages] WHERE [Artist] = @artist
+            """, connection);
+        command.Parameters.Add("artist", SqlDbType.NVarChar, 512).Value = artist;
+        return await command.ExecuteScalarAsync() as string;
     }
 
     public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null,
