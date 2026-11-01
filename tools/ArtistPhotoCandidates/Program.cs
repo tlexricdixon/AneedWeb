@@ -16,8 +16,35 @@ if (args.Length > 0 && (!int.TryParse(args[0],out limit) || limit<1 || limit>100
     return 1;
 }
 using var http=new HttpClient();
-http.DefaultRequestHeaders.UserAgent.ParseAdd("AneedWebArtistReview/1.0 (artist-photo candidate discovery)");
-http.Timeout=TimeSpan.FromSeconds(25);
+http.DefaultRequestHeaders.UserAgent.ParseAdd("AneedWebArtistReview/1.1 (contact: https://github.com/tlexricdixon/AneedWeb)");
+http.Timeout=TimeSpan.FromSeconds(30);
+var lastRequest=DateTimeOffset.MinValue;
+var rateLimited=false;
+async Task<string> GetWithBackoff(string url)
+{
+    for (var attempt=0; attempt<4; attempt++)
+    {
+        var elapsed=DateTimeOffset.UtcNow-lastRequest;
+        if (elapsed<TimeSpan.FromSeconds(3)) await Task.Delay(TimeSpan.FromSeconds(3)-elapsed);
+        lastRequest=DateTimeOffset.UtcNow;
+        using var response=await http.GetAsync(url);
+        if ((int)response.StatusCode==429)
+        {
+            var delay=response.Headers.RetryAfter?.Delta
+                ?? (response.Headers.RetryAfter?.Date-DateTimeOffset.UtcNow)
+                ?? TimeSpan.FromSeconds(15*Math.Pow(2,attempt));
+            if (delay<TimeSpan.FromSeconds(5)) delay=TimeSpan.FromSeconds(5);
+            if (delay>TimeSpan.FromMinutes(2)) delay=TimeSpan.FromMinutes(2);
+            Console.Error.WriteLine($"HTTP 429: pausing {delay.TotalSeconds:F0}s (attempt {attempt+1}/4).");
+            await Task.Delay(delay);
+            continue;
+        }
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+    rateLimited=true;
+    throw new HttpRequestException("Rate limit still active after retries; ending batch.");
+}
 await using var db=new SqlConnection(connectionString);
 await db.OpenAsync();
 await using var query=new SqlCommand("""
@@ -39,7 +66,7 @@ foreach (var artist in artists)
     try
     {
         var searchUrl="https://www.wikidata.org/w/api.php?action=wbsearchentities&search="+Uri.EscapeDataString(artist)+"&language=en&limit=5&format=json";
-        using var search=JsonDocument.Parse(await http.GetStringAsync(searchUrl));
+        using var search=JsonDocument.Parse(await GetWithBackoff(searchUrl));
         foreach (var item in search.RootElement.GetProperty("search").EnumerateArray())
         {
             var label=item.TryGetProperty("label",out var l)?l.GetString():"";
@@ -47,13 +74,13 @@ foreach (var artist in artists)
             var id=item.GetProperty("id").GetString()!;
             var description=item.TryGetProperty("description",out var d)?d.GetString()??"":"";
             var entityUrl="https://www.wikidata.org/w/api.php?action=wbgetentities&ids="+Uri.EscapeDataString(id)+"&props=claims&format=json";
-            using var entity=JsonDocument.Parse(await http.GetStringAsync(entityUrl));
+            using var entity=JsonDocument.Parse(await GetWithBackoff(entityUrl));
             var claims=entity.RootElement.GetProperty("entities").GetProperty(id).GetProperty("claims");
             if (!claims.TryGetProperty("P18",out var images) || images.GetArrayLength()==0) continue;
             var filename=images[0].GetProperty("mainsnak").GetProperty("datavalue").GetProperty("value").GetString();
             if (string.IsNullOrWhiteSpace(filename)) continue;
             var commonsUrl="https://commons.wikimedia.org/w/api.php?action=query&titles="+Uri.EscapeDataString("File:"+filename)+"&prop=imageinfo&iiprop=url%7Cextmetadata&iiurlwidth=640&format=json";
-            using var commons=JsonDocument.Parse(await http.GetStringAsync(commonsUrl));
+            using var commons=JsonDocument.Parse(await GetWithBackoff(commonsUrl));
             var pages=commons.RootElement.GetProperty("query").GetProperty("pages");
             foreach (var page in pages.EnumerateObject())
             {
@@ -74,7 +101,7 @@ foreach (var artist in artists)
     {
         Console.Error.WriteLine($"Skipped {artist}: {ex.Message}");
     }
-    await Task.Delay(250);
+    if (rateLimited) break;
 }
 return 0;
 
