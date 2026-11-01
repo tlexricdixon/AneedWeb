@@ -8,6 +8,10 @@
  {
   <span class="eyebrow">ALBUM / IN THE ANEED LIBRARY</span>
   <h1>@title</h1>
+  @if (songs.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.Artwork)) is { } coverSong)
+  {
+   <img class="album-detail-art" src="@coverSong.Artwork" alt="Cover artwork for @title" />
+  }
   <p><a href="/artists/@ArtistId">@artistName</a></p>
   <p class="muted">Songs available in our library, not necessarily a complete album tracklist.</p>
   @foreach (var song in songs)
