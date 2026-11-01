@@ -7,7 +7,7 @@
  else if (artist is not null)
  {
   <div class="detail">
-   <img src="@(artist.Image ?? "/images/station.png")" alt="" />
+   <img src="@(artistPhoto ?? artist.Image ?? "/images/station.png")" alt="" />
    <div><span class="eyebrow">FROM THE LIBRARY / ARTIST</span><h1>@artist.Name</h1><p class="prose">@artist.Biography</p></div>
   </div>
   <h2>Albums in our library</h2>
@@ -29,19 +29,21 @@
 @code {
  [Parameter] public long Id { get; set; }
  private Artist? artist;
+ private string? artistPhoto;
  private List<Song> songs = [];
  private List<(string Name, int Tracks, int? Year)> albums = [];
  private string title = "Artist";
  private string? error;
  protected override async Task OnParametersSetAsync()
  {
-  artist = null; songs = []; albums = []; error = null;
+  artist = null; artistPhoto = null; songs = []; albums = []; error = null;
   if (!Repository.Configured) { error = "The music library is getting connected."; return; }
   try
   {
    artist = (await Repository.Artists(id: Id)).FirstOrDefault();
    title = artist?.Name ?? "Artist not found";
    if (artist is null) { error = "Artist not found."; return; }
+   artistPhoto = await Repository.ArtistImage(artist.Name);
    albums = await Repository.ArtistAlbums(Id);
    songs = await Repository.Songs(artist: Id);
   }
