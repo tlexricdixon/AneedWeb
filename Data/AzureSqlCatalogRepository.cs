@@ -94,6 +94,40 @@ public sealed class AzureSqlCatalogRepository
         return Convert.ToInt32(value);
     }
 
+
+    // The SAM watcher writes a single current-song row to Azure SQL. Artwork is
+    // joined by its permanent ANEED_ID, never inferred from title/artist.
+    public async Task<Track?> CurrentNowPlaying()
+    {
+        if (!Configured)
+            return null;
+
+        await using var connection = await OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT np.[Title], np.[Artist], sa.[CoverUrl], np.[UpdatedAt]
+            FROM [dbo].[NowPlaying] AS np
+            LEFT JOIN [dbo].[SongArtwork] AS sa ON sa.[AneedId] = np.[AneedId]
+            WHERE np.[Id] = 1
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+
+        // A stopped local watcher must not freeze the website on yesterday's song.
+        var updated = reader.GetDateTime(3);
+        if (updated < DateTime.UtcNow.AddMinutes(-20))
+            return null;
+
+        var title = reader.IsDBNull(0) ? "" : reader.GetString(0);
+        var artist = reader.IsDBNull(1) ? "" : reader.GetString(1);
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(artist))
+            return null;
+
+        var artwork = reader.IsDBNull(2) ? null : reader.GetString(2);
+        // SAM's PlayedAt is local time without an offset; do not mislabel it UTC.
+        return new Track(title, artist, artwork, null);
+    }
+
     public async Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null,
         int page = 1, int pageSize = DefaultPageSize)
     {
