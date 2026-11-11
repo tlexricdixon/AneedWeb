@@ -7,6 +7,8 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<LibraryRepository>();
 builder.Services.AddHttpClient("Live365", c => { c.BaseAddress = new Uri("https://api.live365.com/"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddSingleton<BroadcastService>();
+// Development-only shared DJ rehearsal; no public chat endpoint or background loop.
+builder.Services.AddSingleton<DjGroupRoom>();
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
