@@ -24,3 +24,15 @@
   .song-popup-content { grid-template-columns: 1fr; }
   .song-popup-art { width: min(180px, 100%); }
 }
+
+/* Request confirmation keeps the same exact SAM catalog identity. */
+.song-popup-actions{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;margin-top:1.5rem}
+.song-editorial{border-top:1px solid #4c404b;padding-top:1rem;margin-top:1rem}
+.song-editorial h3{font-size:1.35rem}
+.request-review-song{display:flex;align-items:center;gap:1rem;border:1px solid #534454;padding:1rem;border-radius:.5rem;margin:1rem 0}
+.request-review-song img{width:96px;height:96px;object-fit:cover;border-radius:.4rem}
+.request-review-song>div{display:grid;gap:.2rem;min-width:0}
+.request-review-song strong{font-size:1.4rem;overflow-wrap:anywhere}
+.request-review-song span,.request-review-song small{color:#c6bbc9}
+.request-review h2{font-size:2rem}
+@media(max-width:540px){.request-review-song{align-items:flex-start}.request-review-song img{width:72px;height:72px}}
