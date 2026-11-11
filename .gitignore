@@ -5,3 +5,4 @@ obj/
 *.user
 node_modules/
 artifacts/
+/wwwroot/media/covers
