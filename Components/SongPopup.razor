@@ -52,7 +52,15 @@
                 </dl>
                 <section class="song-editorial" aria-label="About this song">
                     <h3>Behind the song</h3>
-                    @if (!string.IsNullOrWhiteSpace(song.Description))
+                    @if (analysis is not null)
+                    {
+                        <p class="prose">@analysis.Summary</p>
+                        @if (analysis.Themes.Length > 0) { <p><strong>Themes:</strong> @string.Join(" · ", analysis.Themes)</p> }
+                        @if (analysis.Emotions.Length > 0) { <p><strong>Mood:</strong> @string.Join(" · ", analysis.Emotions)</p> }
+                        @if (!string.IsNullOrWhiteSpace(analysis.EmotionalArc)) { <p><strong>Emotional arc:</strong> @analysis.EmotionalArc</p> }
+                    }
+                    else if (analysisLoading) { <p class="muted" role="status">Loading song analysis…</p> }
+                    else if (!string.IsNullOrWhiteSpace(song.Description))
                     {
                         <p class="prose">@song.Description</p>
                     }
@@ -71,6 +79,8 @@
 @code {
     private ElementReference dialog;
     private Song? song;
+    private PublishedSongAnalysis? analysis;
+    private bool analysisLoading;
     private string? error;
     private bool loading;
     private bool reviewing;
@@ -84,6 +94,8 @@
         var id = Popup.SongId;
         activeId = id;
         reviewing = false;
+        analysis = null;
+        analysisLoading = false;
         if (id is null)
         {
             song = null;
@@ -123,9 +135,30 @@
             {
                 loading = false;
                 StateHasChanged();
+                if (song is not null) _ = LoadAnalysisAsync(id.Value);
             }
         }
     });
+
+    private async Task LoadAnalysisAsync(long id)
+    {
+        analysisLoading = true;
+        StateHasChanged();
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var result = await Repository.SongAnalysis(id, cts.Token);
+            if (activeId == id) analysis = result;
+        }
+        catch (Exception ex) when (ex is SqlException or InvalidOperationException or OperationCanceledException)
+        {
+            // Optional editorial content must never prevent song identification or requests.
+        }
+        finally
+        {
+            if (activeId == id) { analysisLoading = false; StateHasChanged(); }
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
