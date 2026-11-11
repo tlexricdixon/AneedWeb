@@ -5,6 +5,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<LibraryRepository>();
+// One dialog selection per Blazor visitor circuit; never globally shared.
+builder.Services.AddScoped<SongPopupState>();
 builder.Services.AddHttpClient("Live365", c => { c.BaseAddress = new Uri("https://api.live365.com/"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddSingleton<BroadcastService>();
 var app = builder.Build();
