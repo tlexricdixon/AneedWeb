@@ -140,8 +140,9 @@ public sealed class AzureSqlCatalogRepository
         await connection.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             SELECT Summary, ThemesJson, EmotionsJson, EmotionalArc
-            FROM dbo.SongAnalysisPublished
-            WHERE SamSongId = @samSongId
+            FROM dbo.SongAnalysisPublished AS a
+            INNER JOIN dbo.SongIdentity AS sid ON sid.SamSongId = a.SamSongId AND sid.AneedId = a.AneedId
+            WHERE a.SamSongId = @samSongId
             """, connection) { CommandTimeout = 3 };
         command.Parameters.Add("samSongId", SqlDbType.BigInt).Value = samSongId;
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
