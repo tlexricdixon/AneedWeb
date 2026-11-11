@@ -6,3 +6,6 @@ obj/
 node_modules/
 artifacts/
 /wwwroot/media/covers
+/Properties/PublishProfiles
+/dotnet-tools.json
+/artist_candidates.tsv
