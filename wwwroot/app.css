@@ -20,3 +20,21 @@ h1:focus{outline:none}
 .alphabet a:hover,.alphabet a.selected{background:var(--accent, #a53030);color:white}
 .directory-pages{display:flex;gap:18px;align-items:center;justify-content:center;padding:30px 0}
 .directory-pages a{color:inherit}
+
+
+/* Song details stay in context; the button looks like the previous song link. */
+.song-popup-trigger {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: .15em;
+  cursor: pointer;
+}
+.song-popup-trigger:hover { color: var(--accent, #d65656); }
+.song-popup-trigger:focus-visible { outline: 3px solid #e3b54e; outline-offset: 3px; }

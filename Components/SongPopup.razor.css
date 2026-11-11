@@ -1,0 +1,26 @@
+.song-popup {
+    width: min(760px, calc(100vw - 2rem));
+    max-height: min(85vh, 800px);
+    padding: 1.2rem;
+    border: 1px solid #7f728d;
+    border-radius: 16px;
+    background: #17151d;
+    color: #f4edf4;
+    box-shadow: 0 25px 75px rgba(0,0,0,.55);
+    overflow: auto;
+}
+.song-popup::backdrop { background: rgba(0,0,0,.75); }
+.song-popup-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .8rem; }
+.song-popup-close { color: inherit; background: transparent; border: 1px solid currentColor; border-radius: .5rem; min-width: 44px; min-height: 44px; font-size: 1.6rem; cursor: pointer; }
+.song-popup-close:focus-visible { outline: 3px solid #e3b54e; outline-offset: 2px; }
+.song-popup-content { display: grid; grid-template-columns: minmax(0, 230px) minmax(0, 1fr); gap: 1.2rem; }
+.song-popup-art { display: block; max-width: 100%; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: .6rem; }
+.song-popup-info { min-width: 0; }
+.song-popup-info h2 { margin-top: 0; overflow-wrap: anywhere; }
+.song-popup-info .song-facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; }
+.song-popup-info .song-facts dt { font-weight: 700; }
+.song-popup-info .song-facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .song-popup-content { grid-template-columns: 1fr; }
+  .song-popup-art { width: min(180px, 100%); }
+}
