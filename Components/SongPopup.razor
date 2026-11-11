@@ -24,7 +24,7 @@
             <img src="@(song.Artwork ?? "/images/station.webp")" alt="" class="song-popup-art" />
             <div class="song-popup-info">
                 <h2 id="song-popup-title">@song.Title</h2>
-                <a href="/artists/@song.ArtistId" class="text-link">@song.Artist ↗</a>
+                <a href="/artists/@song.ArtistId" class="text-link" @onclick="Popup.Close">@song.Artist ↗</a>
                 @if (!string.IsNullOrWhiteSpace(song.Album))
                 {
                     <p>@song.Album @(song.Year is null ? "" : $"· {song.Year}")</p>
@@ -39,7 +39,7 @@
                 {
                     <p class="prose">@song.Description</p>
                 }
-                <a href="/songs/@song.Id" class="text-link">Share song details ↗</a>
+                <a href="/songs/@song.Id" class="text-link" @onclick="Popup.Close">Share song details ↗</a>
             </div>
         </div>
     }
