@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject BroadcastService Broadcast
 @inject LibraryRepository Library
+@inject SongPopupState Popup
 <PageTitle>Aneed Static System — The signal is alive</PageTitle>
 <section class="hero">
  <div class="hero-copy"><span class="eyebrow">INDEPENDENT RADIO / NO GENRE WALLS</span><h1>THE SIGNAL<br />IS <em>ALIVE.</em></h1><p>No genre walls. No safe little boxes.<br />Just the shadow, the smoke, and the songs<br class="desktop" /> that remember the fight.</p><div class="actions"><a class="button" href="#listen">▶ &nbsp; Listen live</a><a class="button secondary" href="/recently-played">Recently played ↗</a></div><div class="hero-note"><span class="red-dot"></span> A NEED STATIC SYSTEM <span>/</span> POWERED BY LIVE365</div></div>
@@ -10,7 +11,7 @@
 </section>
 <section class="content-section broadcast-grid">
  <div class="now"><div class="section-heading"><span class="eyebrow">THE LIVE SIGNAL</span><span class="live-badge">@(state.Playing ? "● ON AIR" : "STATION")</span></div><h2>Now playing</h2>
- @if(state.Current is {} track) { <div class="now-track"><img src="@(track.Artwork ?? "/images/station.png")" alt="Current track artwork" /><div><a class="now-title" href="@SongLink(track)">@track.Title</a><a class="muted" href="@ArtistLink(track)">@track.Artist</a><span class="eyebrow">@(Match(track)?.Album ?? "ANEED STATIC SYSTEM")</span></div></div> }
+ @if(state.Current is {} track) { <div class="now-track"><img src="@(track.Artwork ?? "/images/station.png")" alt="Current track artwork" /><div>@if (track.SamSongId is > 0) { <button type="button" class="now-title song-popup-trigger" @onclick="() => Popup.Open(track.SamSongId.Value)">@track.Title</button> } else { <a class="now-title" href="@SongLink(track)">@track.Title</a> }<a class="muted" href="@ArtistLink(track)">@track.Artist</a><span class="eyebrow">@(Match(track)?.Album ?? "ANEED STATIC SYSTEM")</span></div></div> }
  else { <p>The next transmission is waiting. Tune in below.</p> }
  @if(state.Error is not null) { <p class="notice">@state.Error</p> }
  <div class="signal-line"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
