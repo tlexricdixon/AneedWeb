@@ -18,6 +18,11 @@
     <Content Update="Data/feed.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="tests/**/*.cs" />
     <Compile Remove="Aneed.ContentEnrichment/**/*.cs" />
+    <Compile Remove="tools/**/*.cs" />
     <Content Remove="tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\media\covers\" />
   </ItemGroup>
 </Project>

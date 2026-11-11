@@ -129,7 +129,7 @@ public sealed class AzureSqlCatalogRepository
 
         var artwork = reader.IsDBNull(2) ? null : reader.GetString(2);
         // SAM's PlayedAt is local time without an offset; do not mislabel it UTC.
-        return new Track(title, artist, artwork, null);
+        return new Track(null, title, artist, string.Empty, artwork, null, null);
     }
 
     public async Task<string?> ArtistImage(string artist)
@@ -187,20 +187,17 @@ public sealed class AzureSqlCatalogRepository
         return songs;
     }
 
-    public async Task<List<Song>> BroadcastSongs(IEnumerable<Track> tracks)
+    public async Task<List<Song>> BroadcastSongs(IEnumerable<long> samSongIds)
     {
-        var items = tracks.Take(11).ToArray();
-        if (items.Length == 0 || !Configured)
+        var ids = samSongIds.Distinct().Take(11).ToArray();
+        if (ids.Length == 0 || !Configured)
             return [];
 
         await using var connection = await OpenAsync();
-        var terms = items.Select((_, index) => $"(LOWER([Title]) = LOWER(@title{index}) AND LOWER([Artist]) = LOWER(@artist{index}))");
-        await using var command = new SqlCommand($"{SongSelect} WHERE {string.Join(" OR ", terms)}", connection);
-        for (var index = 0; index < items.Length; index++)
-        {
-            command.Parameters.Add($"title{index}", SqlDbType.NVarChar, 512).Value = items[index].Title;
-            command.Parameters.Add($"artist{index}", SqlDbType.NVarChar, 512).Value = items[index].Artist;
-        }
+        var idParameters = ids.Select((_, index) => $"@id{index}").ToArray();
+        await using var command = new SqlCommand($"{SongSelect} WHERE [SamSongId] IN ({string.Join(", ", idParameters)})", connection);
+        for (var index = 0; index < ids.Length; index++)
+            command.Parameters.Add($"id{index}", SqlDbType.BigInt).Value = ids[index];
 
         var songs = new List<Song>();
         await using var reader = await command.ExecuteReaderAsync();

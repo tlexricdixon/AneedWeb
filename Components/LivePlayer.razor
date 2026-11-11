@@ -3,7 +3,7 @@
 @inject IJSRuntime JS
 @inject LibraryRepository Repository
 <div class="persistent-player" id="listen">
- <img class="player-art" src="@(state.Current?.Artwork ?? "/images/station.webp")" alt="Current track artwork" />
+ <img class="player-art" src="@(state.Current?.Artwork ?? "/images/station.png")" alt="Current track artwork" />
  <div class="player-info"><span class="eyebrow">@(state.Error is not null ? "UPDATES UNAVAILABLE" : state.Playing ? "● LIVE ON AIR" : "STATION PLAYER")</span><a class="player-song" href="@SongLink"><strong>@(state.Current?.Title ?? "Aneed Static System")</strong></a><a href="@ArtistLink">@(state.Current?.Artist ?? "The signal is alive.")</a></div>
  <button class="play-button" @onclick="Toggle" aria-label="@(playing ? "Pause live radio" : "Play live radio")">@(playing ? "Ⅱ" : "▶")</button>
  <div class="player-label"><strong>LISTEN LIVE</strong><small>@(playing ? "You’re tuned in" : "Your next discovery is on air")</small></div>
@@ -17,9 +17,9 @@
  private bool playing; private string? error;
  private Song? match;
  private DotNetObjectReference<LivePlayer>? reference;
- private string SongLink=>match is {} song ? $"/songs/{song.Id}" : Search(state.Current?.Title);
+ private string SongLink=>state.Current?.SamSongId is > 0 ? $"/songs/{state.Current.SamSongId.Value}" : Search(state.Current?.Title);
  private string ArtistLink=>match is {} song ? $"/artists/{song.ArtistId}" : Search(state.Current?.Artist);
- private async Task Match(){match=null;if(Repository.Configured && state.Current is {} track)try{match=(await Repository.BroadcastSongs([track])).FirstOrDefault();}catch(Microsoft.Data.SqlClient.SqlException){}}
+ private async Task Match(){match=null;if(Repository.Configured && state.Current?.SamSongId is > 0)try{match=(await Repository.BroadcastSongs([state.Current.SamSongId.Value])).FirstOrDefault();}catch(Microsoft.Data.SqlClient.SqlException){}}
  [JSInvokable] public Task PlaybackChanged(bool active,bool failed){playing=active;if(failed)error="The stream was interrupted. Try Play again or open the full player.";return InvokeAsync(StateHasChanged);}
  private readonly CancellationTokenSource stop = new(); private Task? polling;
  protected override async Task OnInitializedAsync() { state=await Broadcast.Get(); await Match(); }

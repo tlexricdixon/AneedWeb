@@ -14,7 +14,7 @@
  else { <p>The next transmission is waiting. Tune in below.</p> }
  @if(state.Error is not null) { <p class="notice">@state.Error</p> }
  <div class="signal-line"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
- <div><div class="section-heading"><div><span class="eyebrow">FRESH FROM THE AIRWAVES</span><h2>Recently played</h2></div><a href="/recently-played">View history ↗</a></div>@foreach(var recentTrack in state.Recent.Take(4)){ <TrackRow Item="recentTrack" Library="songs" /> }@if(state.Recent.Count==0){<p class="muted">Recent tracks will appear when Live365 updates.</p>}</div>
+ <div><div class="section-heading"><div><span class="eyebrow">FRESH FROM THE AIRWAVES</span><h2>Recently played</h2></div><a href="/recently-played">View history ↗</a></div>@foreach(var recentTrack in state.Recent.Take(4)){ <TrackRow Item="recentTrack" Library="songs" /> }@if(state.Recent.Count==0){<p class="muted">Recent tracks will appear when metadata updates.</p>}</div>
 </section>
 <section class="content-section catalog-entry" id="catalog">
  <span class="eyebrow">THE ANEED MUSIC LIBRARY</span>
@@ -36,11 +36,14 @@
 @code {
  private CancellationTokenSource stop=new(); private Task? polling;
  private Broadcast state=new(false,null,[],null); private List<Song> songs=[];
- private Song? Match(Track track)=>songs.FirstOrDefault(s=>s.Title.Equals(track.Title,StringComparison.OrdinalIgnoreCase)&&s.Artist.Equals(track.Artist,StringComparison.OrdinalIgnoreCase));
- private string SongLink(Track track)=>Match(track) is {} song ? $"/songs/{song.Id}" : "/library?q="+Uri.EscapeDataString(track.Title);
+ private Song? Match(Track track)=>track.SamSongId is > 0 ? songs.FirstOrDefault(s=>s.Id==track.SamSongId.Value) : null;
+ private string SongLink(Track track)=>track.SamSongId is > 0 ? $"/songs/{track.SamSongId.Value}" : "/library?q="+Uri.EscapeDataString(track.Title);
  private string ArtistLink(Track track)=>Match(track) is {} song ? $"/artists/{song.ArtistId}" : "/library?q="+Uri.EscapeDataString(track.Artist);
+ private IEnumerable<long> BroadcastIds()=> (state.Current is {} current ? state.Recent.Prepend(current) : state.Recent)
+  .Where(track=>track.SamSongId is > 0)
+  .Select(track=>track.SamSongId!.Value);
  protected override Task OnAfterRenderAsync(bool first){if(first)polling=Poll();return Task.CompletedTask;}
- private async Task Poll(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30));while(await timer.WaitForNextTickAsync(stop.Token)){state=await Broadcast.Get();if(Library.Configured)try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Microsoft.Data.SqlClient.SqlException){}await InvokeAsync(StateHasChanged);}}catch(OperationCanceledException){}}
+ private async Task Poll(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(30));while(await timer.WaitForNextTickAsync(stop.Token)){state=await Broadcast.Get();if(Library.Configured)try{songs=await Library.BroadcastSongs(BroadcastIds());}catch(Microsoft.Data.SqlClient.SqlException){}await InvokeAsync(StateHasChanged);}}catch(OperationCanceledException){}}
  public async ValueTask DisposeAsync(){await stop.CancelAsync();if(polling is not null)await polling;stop.Dispose();}
- protected override async Task OnInitializedAsync(){state=await Broadcast.Get();if(Library.Configured){try{songs=await Library.BroadcastSongs(state.Current is {} current ? state.Recent.Prepend(current) : state.Recent);}catch(Microsoft.Data.SqlClient.SqlException){}}}
+ protected override async Task OnInitializedAsync(){state=await Broadcast.Get();if(Library.Configured){try{songs=await Library.BroadcastSongs(BroadcastIds());}catch(Microsoft.Data.SqlClient.SqlException){}}}
 }

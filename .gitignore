@@ -5,3 +5,8 @@ obj/
 *.user
 node_modules/
 artifacts/
+/Properties/PublishProfiles/site104619-WebDeploy.pubxml
+/Properties/PublishProfiles/site104619-WebDeploy1.pubxml
+/wwwroot/media/covers
+/artist_candidates.tsv
+/dotnet-tools.json

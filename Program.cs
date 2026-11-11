@@ -11,6 +11,8 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseAntiforgery();
+
+app.UseStaticFiles();
 app.MapStaticAssets();
 // Local diagnostics for Razor route registration and request guarding.
 // Never expose route introspection outside local development.

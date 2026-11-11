@@ -18,7 +18,7 @@ public class LibraryRepository(IWebHostEnvironment environment, IConfiguration c
         catalog.Songs(query, id, artist, page, pageSize);
 
     public Task<string?> ArtistImage(string artist) => catalog.ArtistImage(artist);
-    public Task<List<Song>> BroadcastSongs(IEnumerable<Services.Track> tracks) => catalog.BroadcastSongs(tracks);
+    public Task<List<Song>> BroadcastSongs(IEnumerable<long> samSongIds) => catalog.BroadcastSongs(samSongIds);
     public Task<List<Artist>> Artists(string query = "", long? id = null) => catalog.Artists(query, id);
     public Task<(List<Artist> Artists, long Total)> ArtistDirectory(string letter, int page = 1, int pageSize = 30) => catalog.ArtistDirectory(letter, page, pageSize);
     public Task<List<(string Name, int Tracks, int? Year)>> ArtistAlbums(long artistId) => catalog.ArtistAlbums(artistId);

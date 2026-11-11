@@ -2,7 +2,7 @@
 @code {
  [Parameter, EditorRequired] public Track Item { get; set; } = default!;
  [Parameter] public IReadOnlyList<Song> Library { get; set; } = [];
- private Song? Match=>Library.FirstOrDefault(s=>s.Title.Equals(Item.Title,StringComparison.OrdinalIgnoreCase)&&s.Artist.Equals(Item.Artist,StringComparison.OrdinalIgnoreCase));
- private string SongLink=>Match is {} s ? $"/songs/{s.Id}" : "/library?q="+Uri.EscapeDataString(Item.Title);
+ private Song? Match=>Item.SamSongId is > 0 ? Library.FirstOrDefault(s=>s.Id==Item.SamSongId.Value) : null;
+ private string SongLink=>Item.SamSongId is > 0 ? $"/songs/{Item.SamSongId.Value}" : "/library?q="+Uri.EscapeDataString(Item.Title);
  private string ArtistLink=>Match is {} s ? $"/artists/{s.ArtistId}" : "/library?q="+Uri.EscapeDataString(Item.Artist);
 }
