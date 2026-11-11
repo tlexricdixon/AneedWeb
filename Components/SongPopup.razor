@@ -1,0 +1,129 @@
+@using Microsoft.Data.SqlClient
+@implements IDisposable
+@inject SongPopupState Popup
+@inject LibraryRepository Repository
+@inject IJSRuntime JS
+
+<dialog @ref="dialog" class="song-popup" aria-labelledby="song-popup-title" @onkeydown="OnKeyDown" @onclose="Popup.Close">
+    <div class="song-popup-top">
+        <span class="eyebrow">ANEED / SONG DETAILS</span>
+        <button type="button" class="song-popup-close" @onclick="Popup.Close" aria-label="Close song details">×</button>
+    </div>
+    @if (loading)
+    {
+        <p role="status">Loading song details…</p>
+    }
+    else if (error is not null)
+    {
+        <h2 id="song-popup-title">Song details</h2>
+        <p class="notice" role="status">@error</p>
+    }
+    else if (song is not null)
+    {
+        <div class="song-popup-content">
+            <img src="@(song.Artwork ?? "/images/station.png")" alt="" class="song-popup-art" />
+            <div class="song-popup-info">
+                <h2 id="song-popup-title">@song.Title</h2>
+                <a href="/artists/@song.ArtistId" class="text-link" @onclick="Popup.Close">@song.Artist ↗</a>
+                @if (!string.IsNullOrWhiteSpace(song.Album))
+                {
+                    <p>@song.Album @(song.Year is null ? "" : $"· {song.Year}")</p>
+                }
+                <dl class="song-facts">
+                    @if (!string.IsNullOrWhiteSpace(song.Genre)) { <dt>Genre</dt><dd>@song.Genre</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Composer)) { <dt>Composer</dt><dd>@song.Composer</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Label)) { <dt>Label</dt><dd>@song.Label</dd> }
+                    @if (!string.IsNullOrWhiteSpace(song.Isrc)) { <dt>ISRC</dt><dd>@song.Isrc</dd> }
+                </dl>
+                @if (!string.IsNullOrWhiteSpace(song.Description))
+                {
+                    <p class="prose">@song.Description</p>
+                }
+                <a href="/songs/@song.Id" class="text-link" @onclick="Popup.Close">Share song details ↗</a>
+            </div>
+        </div>
+    }
+</dialog>
+
+@code {
+    private ElementReference dialog;
+    private Song? song;
+    private string? error;
+    private bool loading;
+    private bool shown;
+    private long? activeId;
+
+    protected override void OnInitialized() => Popup.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(async () =>
+    {
+        var id = Popup.SongId;
+        activeId = id;
+        if (id is null)
+        {
+            song = null;
+            error = null;
+            loading = false;
+            StateHasChanged();
+            return;
+        }
+
+        song = null;
+        error = null;
+        loading = true;
+        StateHasChanged();
+
+        try
+        {
+            if (!Repository.Configured)
+            {
+                error = "The music library is temporarily unavailable.";
+            }
+            else
+            {
+                var result = (await Repository.Songs(id: id.Value)).FirstOrDefault();
+                if (activeId != id) return;
+                song = result;
+                if (song is null) error = "That song could not be found.";
+            }
+        }
+        catch (SqlException)
+        {
+            if (activeId != id) return;
+            error = "The music library is temporarily unavailable.";
+        }
+        finally
+        {
+            if (activeId == id)
+            {
+                loading = false;
+                StateHasChanged();
+            }
+        }
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (Popup.SongId.HasValue && !shown)
+            {
+                await JS.InvokeVoidAsync("aneedSongPopup.show", dialog);
+                shown = true;
+            }
+            else if (!Popup.SongId.HasValue && shown)
+            {
+                await JS.InvokeVoidAsync("aneedSongPopup.close", dialog);
+                shown = false;
+            }
+        }
+        catch (JSDisconnectedException) { }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") Popup.Close();
+    }
+
+    public void Dispose() => Popup.Changed -= OnChanged;
+}
