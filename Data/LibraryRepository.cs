@@ -6,6 +6,7 @@ namespace AneedWeb.Data;
 // Public website models. Song IDs use stable SAM IDs; artist IDs are deterministic catalog identities.
 public record Artist(long Id, string Name, string Biography, string? Image);
 public record Song(long Id, string Title, long ArtistId, string Artist, string Album, int? Year, string Description, string? Artwork, string Genre, string Composer, string Label, string Isrc);
+public record PublishedSongAnalysis(string Summary, string[] Themes, string[] Emotions, string? EmotionalArc);
 public record FeedPost(long Id, string Type, string Title, string Excerpt, string Body, string? Image, DateTime Published);
 
 public class LibraryRepository(IWebHostEnvironment environment, IConfiguration configuration)
@@ -16,6 +17,9 @@ public class LibraryRepository(IWebHostEnvironment environment, IConfiguration c
 
     public Task<List<Song>> Songs(string query = "", long? id = null, long? artist = null, int page = 1, int pageSize = 100) =>
         catalog.Songs(query, id, artist, page, pageSize);
+
+    public Task<PublishedSongAnalysis?> SongAnalysis(long samSongId, CancellationToken cancellationToken = default) =>
+        catalog.SongAnalysis(samSongId, cancellationToken);
 
     public Task<string?> ArtistImage(string artist) => catalog.ArtistImage(artist);
     public Task<List<Song>> BroadcastSongs(IEnumerable<long> samSongIds) => catalog.BroadcastSongs(samSongIds);
