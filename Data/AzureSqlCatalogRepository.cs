@@ -132,6 +132,33 @@ public sealed class AzureSqlCatalogRepository
         return new Track(null, title, artist, string.Empty, artwork, null, null);
     }
 
+    // Optional one-row editorial lookup. Catalog listing paths do not call this method.
+    public async Task<PublishedSongAnalysis?> SongAnalysis(long samSongId, CancellationToken cancellationToken = default)
+    {
+        if (!Configured || samSongId <= 0) return null;
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand("""
+            SELECT Summary, ThemesJson, EmotionsJson, EmotionalArc
+            FROM dbo.SongAnalysisPublished
+            WHERE SamSongId = @samSongId
+            """, connection) { CommandTimeout = 3 };
+        command.Parameters.Add("samSongId", SqlDbType.BigInt).Value = samSongId;
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        static string[] Tags(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return [];
+            try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json) ?? []; }
+            catch (System.Text.Json.JsonException) { return []; }
+        }
+        return new PublishedSongAnalysis(
+            reader.GetString(0),
+            Tags(reader.IsDBNull(1) ? null : reader.GetString(1)),
+            Tags(reader.IsDBNull(2) ? null : reader.GetString(2)),
+            reader.IsDBNull(3) ? null : reader.GetString(3));
+    }
+
     public async Task<string?> ArtistImage(string artist)
     {
         if (!Configured || string.IsNullOrWhiteSpace(artist))
