@@ -4,7 +4,7 @@
 @inject LibraryRepository Repository
 @inject IJSRuntime JS
 
-<dialog @ref="dialog" class="song-popup" aria-labelledby="song-popup-title" @onkeydown="OnKeyDown" @onclose="Popup.Close">
+<dialog @ref="dialog" class="song-popup" aria-labelledby="@(reviewing ? "request-review-title" : "song-popup-title")" @onkeydown="OnKeyDown" @onclose="Popup.Close">
     <div class="song-popup-top">
         <span class="eyebrow">ANEED / SONG DETAILS</span>
         <button type="button" class="song-popup-close" @onclick="Popup.Close" aria-label="Close song details">×</button>
@@ -24,13 +24,13 @@
         {
             <section class="request-review" aria-labelledby="request-review-title">
                 <h2 id="request-review-title">Is this the song you want?</h2>
-                <p>Check the artist, album and song ID before requesting. Different recordings can share a title.</p>
+                <p>Check the artist, album and song ID to identify this exact recording. Different versions can share a title.</p>
                 <div class="request-review-song">
                     <img src="@(song.Artwork ?? "/images/station.png")" alt="" />
                     <div><strong>@song.Title</strong><span>@song.Artist</span><span>@song.Album</span><small>SAM song ID: @song.Id</small></div>
                 </div>
-                <p role="status" class="notice">Online requests are not connected to SAM yet. No request has been sent.</p>
-                <button type="button" class="button secondary" @onclick="() => reviewing = false">Back to song information</button>
+                <p role="status" class="notice">Song requests are coming soon. Nothing has been submitted.</p>
+                <button type="button" class="button secondary" @onclick="() => reviewing = false">Back to song details</button>
             </section>
         }
         else
@@ -42,7 +42,7 @@
                 <a href="/artists/@song.ArtistId" class="text-link" @onclick="Popup.Close">@song.Artist ↗</a>
                 @if (!string.IsNullOrWhiteSpace(song.Album))
                 {
-                    <p>@song.Album @(song.Year is null ? "" : $"· {song.Year}")</p>
+                    <p>@song.Album @(song.Year is > 1800 ? $"· {song.Year}" : "")</p>
                 }
                 <dl class="song-facts">
                     @if (!string.IsNullOrWhiteSpace(song.Genre)) { <dt>Genre</dt><dd>@song.Genre</dd> }
@@ -50,18 +50,14 @@
                     @if (!string.IsNullOrWhiteSpace(song.Label)) { <dt>Label</dt><dd>@song.Label</dd> }
                     @if (!string.IsNullOrWhiteSpace(song.Isrc)) { <dt>ISRC</dt><dd>@song.Isrc</dd> }
                 </dl>
+                @if (!string.IsNullOrWhiteSpace(song.Description))
+                {
                 <section class="song-editorial" aria-label="About this song">
                     <h3>Behind the song</h3>
-                    @if (!string.IsNullOrWhiteSpace(song.Description))
-                    {
-                        <p class="prose">@song.Description</p>
-                    }
-                    else
-                    {
-                        <p class="muted">A song interpretation is not available in the public catalog yet.</p>
-                    }
+                    <p class="prose">@song.Description</p>
                 </section>
-                <div class="song-popup-actions"><button type="button" class="button" @onclick="() => reviewing = true">Review song request</button><a href="/songs/@song.Id" class="text-link" @onclick="Popup.Close">Open song page</a></div>
+                }
+                <div class="song-popup-actions"><button type="button" class="button" @onclick="() => reviewing = true">Verify this recording</button><a href="/songs/@song.Id" class="text-link" @onclick="Popup.Close">Open song page</a></div>
             </div>
         </div>
         }
