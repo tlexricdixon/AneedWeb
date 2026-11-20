@@ -1,4 +1,5 @@
 @page "/artists/{Id:long}"
+@inject SongPopupState Popup
 @inject LibraryRepository Repository
 <PageTitle>@title — Aneed Static System</PageTitle>
 <section class="content-section page">
@@ -21,7 +22,7 @@
   <h2>Songs in our library</h2>
   @foreach (var song in songs)
   {
-   <div class="track-row"><div><a class="track-title" href="/songs/@song.Id">@song.Title</a><span class="muted">@song.Album</span></div></div>
+   <div class="track-row"><div><button type="button" class="track-title song-popup-trigger" @onclick="() => Popup.Open(song.Id)">@song.Title</button><span class="muted">@song.Album</span></div></div>
   }
   @if (songs.Count == 100) { <p class="muted">Showing the first 100 songs. <a href="@("/library?q=" + Uri.EscapeDataString(artist.Name))">Search for more</a>.</p> }
  }
