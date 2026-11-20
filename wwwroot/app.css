@@ -39,3 +39,8 @@ h1:focus{outline:none}
         width: 200px;
     }
 }
+/* Reusable accessible song-details dialog triggers */
+.song-popup-trigger{appearance:none;background:transparent;border:0;margin:0;padding:0;color:inherit;font:inherit;text-align:left;text-decoration:underline;text-underline-offset:.15em;cursor:pointer}
+.song-popup-trigger:hover{color:var(--red)}
+.song-popup-trigger:focus-visible{outline:3px solid #e3b54e;outline-offset:3px}
+.player-info button.player-song{font-size:11px;color:var(--text)}
