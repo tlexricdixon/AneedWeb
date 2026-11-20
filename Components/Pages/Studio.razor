@@ -14,8 +14,12 @@
 }
 else
 {
+    @if (!Room.ApiKeyConfigured)
+    {
+        <p role="alert" class="text-danger">@Room.ConfigurationDiagnostic</p>
+    }
     <div class="mb-3">
-        <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@busy">
+        <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
             @(busy ? "DJs are talking…" : "Let the DJs talk (3 turns)")
         </button>
         <button type="button" class="btn btn-outline-secondary" @onclick="Reset" disabled="@busy">
@@ -55,6 +59,7 @@ else
     private IReadOnlyList<DjGroupRoom.GroupLine> lines = [];
     private bool busy;
     private string? error;
+    private readonly CancellationTokenSource lifetimeCts = new();
 
     protected override void OnInitialized()
     {
@@ -77,10 +82,18 @@ else
     private async Task RunAsync()
     {
         error = null;
-        try { await Room.RunThreeTurnsAsync(); }
+        try { await Room.RunThreeTurnsAsync(lifetimeCts.Token); }
+        catch (InvalidOperationException ex)
+        {
+            error = ex.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            error = "The rehearsal was cancelled. Start it again when ready.";
+        }
         catch (Exception)
         {
-            error = "The DJs couldn't finish this rehearsal. Check the server logs and try again.";
+            error = "The DJs couldn't finish this rehearsal. Try again.";
         }
         finally { Refresh(); }
     }
@@ -92,5 +105,10 @@ else
         error = null;
     }
 
-    public void Dispose() => Room.Changed -= OnRoomChanged;
+    public void Dispose()
+    {
+        Room.Changed -= OnRoomChanged;
+        lifetimeCts.Cancel();
+        lifetimeCts.Dispose();
+    }
 }
