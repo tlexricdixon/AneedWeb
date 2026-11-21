@@ -3,6 +3,7 @@
 @using AneedWeb.Djs
 @implements IDisposable
 @inject DjGroupRoom Room
+@inject SamClapSchemaService ClapSchema
 
 <PageTitle>DJ Group Rehearsal</PageTitle>
 <h1>Aneed DJ group rehearsal</h1>
@@ -20,6 +21,14 @@ else
         <p role="alert" class="text-danger">@Room.ConfigurationDiagnostic</p>
     }
     <div class="mb-3">
+        <button type="button" class="btn btn-outline-secondary me-2" @onclick="CheckClapSchemaAsync" disabled="@busy">
+            Check SAM PostgreSQL CLAP schema
+        </button>
+        @if (!string.IsNullOrWhiteSpace(clapStatus))
+        {
+            <p role="status" class="mt-2">@clapStatus</p>
+        }
+
         <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
             @(busy ? "DJs are talking…" : "Let the DJs talk (3 turns)")
         </button>
@@ -62,6 +71,7 @@ else
 @code {
     private IReadOnlyList<DjGroupRoom.GroupLine> lines = [];
     private bool busy;
+    private string? clapStatus;
     private string? error;
     private readonly CancellationTokenSource lifetimeCts = new();
 
@@ -110,6 +120,12 @@ else
         catch (OperationCanceledException) { error = "The rehearsal was cancelled."; }
         catch (Exception) { error = "The music rehearsal could not finish. Check the server logs."; }
         finally { Refresh(); }
+    }
+
+    private async Task CheckClapSchemaAsync()
+    {
+        try { clapStatus = await ClapSchema.InspectAsync(lifetimeCts.Token); }
+        catch (Exception) { clapStatus = "Schema check failed; inspect application logs."; }
     }
 
     private void Reset()
