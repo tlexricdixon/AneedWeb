@@ -70,6 +70,7 @@ public sealed class DjGroupRoom : IDisposable
             IsRunning = true;
             Changed?.Invoke();
             string? musicBrief = null;
+            bool hasAudioNotes = false;
             if (useCurrentSong)
             {
                 var current = (await _broadcast.Get()).Current;
@@ -77,6 +78,7 @@ public sealed class DjGroupRoom : IDisposable
                     throw new InvalidOperationException("No current SAM song ID was found in the broadcast history.");
 
                 var clapNotes = _clap.GetNotes(current.SamSongId);
+                hasAudioNotes = !string.IsNullOrWhiteSpace(clapNotes);
                 if (string.IsNullOrWhiteSpace(clapNotes) && requireClap)
                     throw new InvalidOperationException("No verified CLAP notes found for the current SAM song. Import a verified CLAP export first.");
 
@@ -97,7 +99,9 @@ public sealed class DjGroupRoom : IDisposable
                 if (musicBrief is not null)
                     input = "Trusted music context:\n" + musicBrief +
                         "\n\n" + (recent.Count == 0
-                            ? "Discuss this song as coworkers with different tastes. Start with one specific production or arrangement observation, not a lighting metaphor."
+                            ? (hasAudioNotes
+                                ? "Discuss the specific supplied audio observations as coworkers with different tastes, not a lighting metaphor."
+                                : "Discuss the currently playing artist and song from the metadata. Be funny and conversational; do not pretend to have listened to its sound.")
                             : "Respond to a concrete musical point, challenge it or add an independent observation. Don't recycle the previous DJ's imagery.") +
                         "\n\nRecent studio conversation:\n" +
                         string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
