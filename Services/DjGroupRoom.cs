@@ -11,7 +11,8 @@ public sealed class DjGroupRoom : IDisposable
 {
     private const int MaxVisibleMessages = 32;
     private const int ModelHistoryMessages = 12;
-    private const string Model = "gpt-6-luna";
+    private const string DefaultModel = "gpt-5.4-mini";
+    private readonly string _model;
     private const string ResponsesEndpoint = "https://api.openai.com/v1/responses";
     private readonly Lock _sync = new();
     private readonly SemaphoreSlim _runGate = new(1, 1);
@@ -23,14 +24,19 @@ public sealed class DjGroupRoom : IDisposable
 
     public event Action? Changed;
 
-    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment)
+    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment, IConfiguration configuration)
     {
         _enabled = environment.IsDevelopment();
         _apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         _http = httpClientFactory.CreateClient("OpenAI");
+        // Pick a model without editing source. Keep changes on a local rehearsal branch.
+        _model = string.IsNullOrWhiteSpace(configuration["ANEED_DJ_MODEL"])
+            ? DefaultModel
+            : configuration["ANEED_DJ_MODEL"]!.Trim();
     }
 
     public bool Enabled => _enabled;
+    public string ModelName => _model;
     public bool ApiKeyConfigured => !string.IsNullOrWhiteSpace(_apiKey);
     public string? ConfigurationDiagnostic => ApiKeyConfigured ? null :
         "OPENAI_API_KEY is missing from this .NET process. Set it in the parent environment and restart the app. If Visual Studio was started before the variable was created, restart Visual Studio too.";
@@ -107,7 +113,7 @@ public sealed class DjGroupRoom : IDisposable
         {
             Content = JsonContent.Create(new
             {
-                model = Model,
+                model = _model,
                 instructions = DjProfiles.BuildSystemPrompt(profile) +
                     "\n\nThis is a friendly group studio rehearsal. Reply only as your selected DJ, in one or two concise spoken sentences. " +
                     "Prioritize your character's distinct taste over agreement. Respond to a concrete point without echoing the previous speaker's wording or imagery. " +
