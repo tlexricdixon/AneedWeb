@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject DjGroupRoom Room
 @inject SamClapSchemaService ClapSchema
+@inject BroadcastService Broadcast
 
 <PageTitle>DJ Group Rehearsal</PageTitle>
 <h1>Aneed DJ group rehearsal</h1>
@@ -20,6 +21,21 @@ else
     {
         <p role="alert" class="text-danger">@Room.ConfigurationDiagnostic</p>
     }
+    <section class="mb-3" aria-label="SAM now playing">
+        <strong>SAM now playing:</strong>
+        @if (nowPlaying is not null)
+        {
+            <span>@nowPlaying.Artist — @nowPlaying.Title</span>
+            <small class="text-muted ms-2">SAM ID: @nowPlaying.SamSongId</small>
+        }
+        else
+        {
+            <span>Not loaded</span>
+        }
+        <button type="button" class="btn btn-outline-secondary btn-sm ms-2" @onclick="RefreshNowPlayingAsync" disabled="@busy">
+            Refresh SAM song
+        </button>
+    </section>
     <div class="mb-3">
         <button type="button" class="btn btn-outline-secondary me-2" @onclick="CheckClapSchemaAsync" disabled="@busy">
             Check SAM PostgreSQL CLAP schema
@@ -31,6 +47,9 @@ else
 
         <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
             @(busy ? "DJs are talking…" : "Let the DJs talk (3 turns)")
+        </button>
+        <button type="button" class="btn btn-outline-primary me-2" @onclick="RunSongOnlyAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
+            Let the DJs discuss the SAM song (3 turns)
         </button>
         <button type="button" class="btn btn-outline-primary me-2" @onclick="RunCurrentSongAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
             Rehearse with current song + CLAP
@@ -71,6 +90,7 @@ else
 @code {
     private IReadOnlyList<DjGroupRoom.GroupLine> lines = [];
     private bool busy;
+    private Track? nowPlaying;
     private string? clapStatus;
     private string? error;
     private readonly CancellationTokenSource lifetimeCts = new();
@@ -110,6 +130,24 @@ else
             error = "The DJs couldn't finish this rehearsal. Try again.";
         }
         finally { Refresh(); }
+    }
+
+    private async Task RefreshNowPlayingAsync()
+    {
+        var snapshot = await Broadcast.Get();
+        nowPlaying = snapshot.Current;
+        if (nowPlaying is null) error = "Could not read current SAM track. Check ANEED_SAM_HISTORY_URL or the local history file.";
+        else error = null;
+    }
+
+    private async Task RunSongOnlyAsync()
+    {
+        error = null;
+        try { await Room.RunSongOnlyAsync(lifetimeCts.Token); }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        catch (OperationCanceledException) { error = "The rehearsal was cancelled."; }
+        catch (Exception) { error = "The current-song rehearsal could not finish. Check the server logs."; }
+        finally { await RefreshNowPlayingAsync(); Refresh(); }
     }
 
     private async Task RunCurrentSongAsync()
