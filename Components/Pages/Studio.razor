@@ -23,6 +23,9 @@ else
         <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
             @(busy ? "DJs are talking…" : "Let the DJs talk (3 turns)")
         </button>
+        <button type="button" class="btn btn-outline-primary me-2" @onclick="RunCurrentSongAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
+            Rehearse with current song + CLAP
+        </button>
         <button type="button" class="btn btn-outline-secondary" @onclick="Reset" disabled="@busy">
             Start over
         </button>
@@ -96,6 +99,16 @@ else
         {
             error = "The DJs couldn't finish this rehearsal. Try again.";
         }
+        finally { Refresh(); }
+    }
+
+    private async Task RunCurrentSongAsync()
+    {
+        error = null;
+        try { await Room.RunCurrentSongAsync(lifetimeCts.Token); }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        catch (OperationCanceledException) { error = "The rehearsal was cancelled."; }
+        catch (Exception) { error = "The music rehearsal could not finish. Check the server logs."; }
         finally { Refresh(); }
     }
 
