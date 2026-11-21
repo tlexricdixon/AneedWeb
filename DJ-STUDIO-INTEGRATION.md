@@ -26,7 +26,7 @@ branch and must be supplied separately. Until then, initials are shown.
 - It uses a single in-process room, bounded message history and three sequential
   model replies per click. No autonomous background task or database writes.
 - DJ rehearsal generation calls the OpenAI Responses API using the server-side
-  `OPENAI_API_KEY` and the `gpt-6-luna` model. Generation remains disabled outside
+  `OPENAI_API_KEY` and the model selected by `ANEED_DJ_MODEL` (default: `gpt-5.4-mini`). Generation remains disabled outside
   Development; do not make this rehearsal public without separately reviewing
   moderation, limits, and inference costs.
 - Integrate durable chat history into the deliberately chosen database after
@@ -36,3 +36,15 @@ branch and must be supplied separately. Until then, initials are shown.
   deletion and retention controls. Not part of this POC.
 - Before merging, build and test locally; no compilation or browser test has
   been performed by this GitHub-only change.
+
+## Model selection and cost boundary
+
+The shared studio uses `gpt-5.4-mini` by default. To change the model without
+recompiling, set `ANEED_DJ_MODEL` in the server process environment and restart
+AneedWeb. The UI displays the selected model during rehearsal.
+
+No model-name setting guarantees free API usage: verify the account's actual
+free-usage terms, eligible model names, and daily usage on the OpenAI billing
+and usage pages. Keep the rehearsal in Development, with its three-turn limit,
+until production auth, rate limiting, persistence, moderation and cost caps
+are implemented. Never put the API key in the repository.
