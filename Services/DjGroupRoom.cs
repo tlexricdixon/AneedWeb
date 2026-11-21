@@ -18,17 +18,21 @@ public sealed class DjGroupRoom : IDisposable
     private readonly SemaphoreSlim _runGate = new(1, 1);
     private readonly List<GroupLine> _lines = [];
     private readonly HttpClient _http;
+    private readonly BroadcastService _broadcast;
+    private readonly DjClapContextStore _clap;
     private readonly string? _apiKey;
     private readonly bool _enabled;
     private int _nextSpeaker;
 
     public event Action? Changed;
 
-    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment, IConfiguration configuration)
+    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment, IConfiguration configuration, BroadcastService broadcast, DjClapContextStore clap)
     {
         _enabled = environment.IsDevelopment();
         _apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         _http = httpClientFactory.CreateClient("OpenAI");
+        _broadcast = broadcast;
+        _clap = clap;
         // Pick a model without editing source. Keep changes on a local rehearsal branch.
         _model = string.IsNullOrWhiteSpace(configuration["ANEED_DJ_MODEL"])
             ? DefaultModel
@@ -46,7 +50,13 @@ public sealed class DjGroupRoom : IDisposable
         lock (_sync) return _lines.ToArray();
     }
 
-    public async Task RunThreeTurnsAsync(CancellationToken cancellationToken = default)
+    public Task RunThreeTurnsAsync(CancellationToken cancellationToken = default) =>
+        RunInternalAsync(false, cancellationToken);
+
+    public Task RunCurrentSongAsync(CancellationToken cancellationToken = default) =>
+        RunInternalAsync(true, cancellationToken);
+
+    private async Task RunInternalAsync(bool useCurrentSong, CancellationToken cancellationToken)
     {
         if (!_enabled) throw new InvalidOperationException("The group experiment is only enabled in Development.");
         if (!ApiKeyConfigured) throw new InvalidOperationException(ConfigurationDiagnostic);
@@ -56,6 +66,22 @@ public sealed class DjGroupRoom : IDisposable
         {
             IsRunning = true;
             Changed?.Invoke();
+            string? musicBrief = null;
+            if (useCurrentSong)
+            {
+                var current = (await _broadcast.Get()).Current;
+                if (current?.SamSongId is not > 0)
+                    throw new InvalidOperationException("No current SAM song ID was found in the broadcast history.");
+
+                var clapNotes = _clap.GetNotes(current.SamSongId);
+                if (string.IsNullOrWhiteSpace(clapNotes))
+                    throw new InvalidOperationException("No verified CLAP notes found for the current SAM song. Import a verified CLAP export first.");
+
+                musicBrief = "Current broadcast track (metadata from SAM): " + current.Artist + " — " +
+                    current.Title + (string.IsNullOrWhiteSpace(current.Album) ? "" : " (" + current.Album + ")") +
+                    "\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes +
+                    "\nUse these as fallible listening cues; do not invent lyrics, lived experiences or unsupported claims.";
+            }
             for (var i = 0; i < 3; i++)
             {
                 var profile = DjProfiles.All[_nextSpeaker % DjProfiles.All.Count];
@@ -65,6 +91,14 @@ public sealed class DjGroupRoom : IDisposable
                     : "Recent studio conversation:\n" +
                       string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
                       "\n\nContinue naturally as " + profile.Name + " only.";
+                if (musicBrief is not null)
+                    input = "Trusted music context:\n" + musicBrief +
+                        "\n\n" + (recent.Count == 0
+                            ? "Discuss this song as coworkers with different tastes. Start with one specific production or arrangement observation, not a lighting metaphor."
+                            : "Respond to a concrete musical point, challenge it or add an independent observation. Don't recycle the previous DJ's imagery.") +
+                        "\n\nRecent studio conversation:\n" +
+                        string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
+                        "\n\nSpeak only as " + profile.Name + ".";
                 var answer = await GenerateReplyAsync(profile, input, cancellationToken);
 
                 lock (_sync)
