@@ -10,6 +10,7 @@ builder.Services.AddHttpClient("Live365", c => { c.BaseAddress = new Uri("https:
 builder.Services.AddHttpClient("OpenAI", c => { c.Timeout = TimeSpan.FromSeconds(60); });
 builder.Services.AddSingleton<BroadcastService>();
 // Development-only shared DJ rehearsal; no public chat endpoint or background loop.
+builder.Services.AddSingleton<DjClapContextStore>();
 builder.Services.AddSingleton<DjGroupRoom>();
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
