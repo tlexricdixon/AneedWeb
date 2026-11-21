@@ -79,8 +79,8 @@ public sealed class DjGroupRoom : IDisposable
 
                 musicBrief = "Current broadcast track (metadata from SAM): " + current.Artist + " — " +
                     current.Title + (string.IsNullOrWhiteSpace(current.Album) ? "" : " (" + current.Album + ")") +
-                    "\\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes +
-                    "\\nUse these as fallible listening cues; do not invent lyrics, lived experiences or unsupported claims.";
+                    "\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes +
+                    "\nUse these as fallible listening cues; do not invent lyrics, lived experiences or unsupported claims.";
             }
             for (var i = 0; i < 3; i++)
             {
