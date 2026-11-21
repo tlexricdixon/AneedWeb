@@ -45,3 +45,42 @@ The existing JSON adapter accepts optional entries in
 ```
 That example is not evidence of a real match. It should not be
 used as production data.
+
+
+## First local milestone: SAM song -> DJ dialogue
+
+AneedWeb can now optionally read the **same public HTTPS history feed** already
+uploaded by SAM to Utah. This is enabled **only when AneedWeb runs in Development**.
+No connection into the SAM broadcast machine is necessary.
+
+Set the following in Nitro's environment before launching Visual Studio:
+
+- `OPENAI_API_KEY`: existing server-side OpenAI key.
+- `ANEED_POSTGRES`: existing read-only-capable connection to SAM PostgreSQL
+  (used for CLAP schema inspection; live CLAP lookup is not wired yet).
+- `ANEED_SAM_HISTORY_URL`: the **actual HTTPS URL** of the existing
+  Utah-hosted `/sam/history.json` feed, e.g.
+  `https://your-real-station-host.example/sam/history.json`. The example
+  hostname is a placeholder, not the real ANEED address.
+- Optional `ANEED_DJ_MODEL`: OpenAI model override.
+
+For a single PowerShell session, start Visual Studio *from that same session*
+after setting the variables, so the web process inherits them. Alternatively
+set persistent user environment variables and restart Visual Studio.
+
+Open `/studio` and click **Refresh SAM song**. Confirm the song title,
+artist, and SAM ID match the live broadcast. Refreshes use the existing
+20-second broadcast cache. Then use **Let the DJs discuss the SAM song
+(3 turns)**. This first rehearsal uses only the track metadata—no invented
+audio-analysis notes—and does not require the CLAP export.
+
+**Check SAM PostgreSQL CLAP schema** reports the real existing columns from
+the `ANEED_POSTGRES` connection. The **Rehearse with current song + CLAP**
+button still needs verified CLAP notes; direct SQL retrieval is the next
+change once the schema and ID crosswalk are checked.
+
+If `ANEED_SAM_HISTORY_URL` is omitted, the development site retains the
+existing `wwwroot/sam/history.json` file behavior. Production never
+honors `ANEED_SAM_HISTORY_URL`, retaining the original file path.
+
+No new autonomous schedule or broadcasting changes were introduced.
