@@ -58,10 +58,9 @@ Set the following in Nitro's environment before launching Visual Studio:
 - `OPENAI_API_KEY`: existing server-side OpenAI key.
 - `ANEED_POSTGRES`: existing read-only-capable connection to SAM PostgreSQL
   (used for CLAP schema inspection; live CLAP lookup is not wired yet).
-- `ANEED_SAM_HISTORY_URL`: the **actual HTTPS URL** of the existing
-  Utah-hosted `/sam/history.json` feed, e.g.
-  `https://your-real-station-host.example/sam/history.json`. The example
-  hostname is a placeholder, not the real ANEED address.
+- `ANEED_SAM_HISTORY_URL`: configured automatically in
+  `appsettings.Development.json` as `https://aneedstatic.live/sam/history.json`.
+  Override with the environment variable only when testing another feed.
 - Optional `ANEED_DJ_MODEL`: OpenAI model override.
 
 For a single PowerShell session, start Visual Studio *from that same session*
@@ -84,3 +83,22 @@ existing `wwwroot/sam/history.json` file behavior. Production never
 honors `ANEED_SAM_HISTORY_URL`, retaining the original file path.
 
 No new autonomous schedule or broadcasting changes were introduced.
+
+## Visual Studio / production separation
+
+`Properties/launchSettings.json` already sets `ASPNETCORE_ENVIRONMENT=Development`
+for both VS profiles. `appsettings.Development.json` contains only the
+nonsecret SAM history URL; Visual Studio loads it automatically. There is no
+need to start VS from a PowerShell session just to configure the URL.
+
+`BroadcastService` explicitly checks `environment.IsDevelopment()` before
+reading that setting. When published as Production, it always uses the
+existing `wwwroot/sam/history.json` on the web host. Neither the production
+`appsettings.json` nor the SAM FTP/upload configuration is changed.
+
+**Before merging**, run `dotnet build AneedWeb.csproj`, verify the live
+HTTPS URL responds with valid JSON from Nitro, and run `/studio` using the
+Visual Studio https profile: Refresh SAM song, then let the DJs discuss that
+song. Confirm the displayed artist/title/SAM ID against the broadcast.
+The URL has not been verified from this environment; if it returns an error,
+check the published path rather than changing production routing.
