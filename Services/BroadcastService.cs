@@ -6,7 +6,7 @@ namespace AneedWeb.Services;
 public record Track(long? SamSongId, string Title, string Artist, string Album, string? Artwork, string? Picture, DateTimeOffset? Started);
 public record Broadcast(bool Playing, Track? Current, IReadOnlyList<Track> Recent, string? Error);
 
-public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<BroadcastService> logger, IConfiguration configuration)
+public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<BroadcastService> logger, IConfiguration configuration, IHttpClientFactory httpClientFactory)
 {
     private const string HistoryRelativePath = "sam/history.json";
     private static readonly HashSet<string> AllowedPictureExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -15,6 +15,10 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
     };
 
     private readonly AzureSqlCatalogRepository catalog = new(configuration);
+    private readonly HttpClient samHistoryHttp = httpClientFactory.CreateClient("SamHistory");
+    private readonly string? developmentHistoryUrl = environment.IsDevelopment()
+        ? configuration["ANEED_SAM_HISTORY_URL"]
+        : null;
     private readonly SemaphoreSlim gate = new(1, 1);
     private Broadcast snapshot = new(false, null, [], null);
     private DateTimeOffset refreshed;
@@ -74,6 +78,29 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
 
     private async Task<Broadcast?> LoadSnapshot()
     {
+        if (!string.IsNullOrWhiteSpace(developmentHistoryUrl))
+        {
+            if (!Uri.TryCreate(developmentHistoryUrl, UriKind.Absolute, out var url)
+                || url.Scheme != Uri.UriSchemeHttps)
+            {
+                logger.LogWarning("ANEED_SAM_HISTORY_URL must be an absolute HTTPS address.");
+                return null;
+            }
+            try
+            {
+                using var response = await samHistoryHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                using var doc = await JsonDocument.ParseAsync(stream);
+                return await ApplyArtworkMappings(ParseHistorySnapshot(doc.RootElement.GetRawText()));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException)
+            {
+                logger.LogWarning("Local SAM history feed unavailable ({Type}).", ex.GetType().Name);
+                return null;
+            }
+        }
+
         var path = Path.Combine(environment.WebRootPath, HistoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(path))
         {
