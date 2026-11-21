@@ -12,6 +12,8 @@ builder.Services.AddSingleton<BroadcastService>();
 builder.Services.AddSingleton<AzureSqlCatalogRepository>();
 builder.Services.AddSingleton<ClapMusicAnalysisService>();
 // Development-only shared DJ rehearsal; no public chat endpoint or background loop.
+builder.Services.AddScoped<SamClapSchemaService>();
+builder.Services.AddSingleton<DjClapContextStore>();
 builder.Services.AddSingleton<DjGroupRoom>();
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
