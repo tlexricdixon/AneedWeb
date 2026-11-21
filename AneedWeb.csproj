@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageReference Include="MySqlConnector" Version="3.0.0" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
@@ -24,5 +26,6 @@
 
   <ItemGroup>
     <Folder Include="wwwroot\media\covers\" />
+    <Folder Include="wwwroot\sam\" />
   </ItemGroup>
 </Project>

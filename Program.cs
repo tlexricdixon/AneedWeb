@@ -9,6 +9,8 @@ builder.Services.AddScoped<SongPopupState>();
 builder.Services.AddHttpClient("Live365", c => { c.BaseAddress = new Uri("https://api.live365.com/"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddHttpClient("OpenAI", c => { c.Timeout = TimeSpan.FromSeconds(60); });
 builder.Services.AddSingleton<BroadcastService>();
+builder.Services.AddSingleton<AzureSqlCatalogRepository>();
+builder.Services.AddSingleton<ClapMusicAnalysisService>();
 // Development-only shared DJ rehearsal; no public chat endpoint or background loop.
 builder.Services.AddSingleton<DjGroupRoom>();
 var app = builder.Build();

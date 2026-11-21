@@ -4,11 +4,25 @@ using AneedWeb.Data;
 namespace AneedWeb.Services;
 
 public record Track(long? SamSongId, string Title, string Artist, string Album, string? Artwork, string? Picture, DateTimeOffset? Started);
-public record Broadcast(bool Playing, Track? Current, IReadOnlyList<Track> Recent, string? Error);
+public record Broadcast(
+    bool Playing,
+    Track? Current,
+    IReadOnlyList<Track> Recent,
+    string? Error,
+    string Source = "Unavailable",
+    DateTimeOffset? LastSuccessfulRefresh = null,
+    bool IsStale = false);
 
-public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<BroadcastService> logger, IConfiguration configuration)
+public sealed class BroadcastService(
+    IWebHostEnvironment environment,
+    ILogger<BroadcastService> logger,
+    IConfiguration configuration,
+    IHttpClientFactory httpClientFactory)
 {
     private const string HistoryRelativePath = "sam/history.json";
+    private const string DefaultDevelopmentHistoryUrl = "https://aneedstatic.live/sam/history.json";
+    private static readonly TimeSpan SuccessCacheDuration = TimeSpan.FromSeconds(20);
+
     private static readonly HashSet<string> AllowedPictureExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".gif", ".webp"
@@ -16,21 +30,22 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
 
     private readonly AzureSqlCatalogRepository catalog = new(configuration);
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly HttpClient http = httpClientFactory.CreateClient();
+    private readonly string? developmentHistoryUrl = configuration["ANEED_SAM_HISTORY_URL"];
+
     private Broadcast snapshot = new(false, null, [], null);
     private DateTimeOffset refreshed;
+    private DateTimeOffset? lastSuccessfulRefresh;
 
     public async Task<Broadcast> Get()
     {
         await gate.WaitAsync();
         try
         {
-            if (DateTimeOffset.UtcNow - refreshed < TimeSpan.FromSeconds(20))
+            if (snapshot.Error is null && DateTimeOffset.UtcNow - refreshed < SuccessCacheDuration)
                 return snapshot;
 
-            var updated = await LoadSnapshot();
-            if (updated is not null)
-                snapshot = updated;
-
+            snapshot = await LoadSnapshot();
             refreshed = DateTimeOffset.UtcNow;
             return snapshot;
         }
@@ -46,16 +61,16 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
         var root = doc.RootElement;
         var history = root.ValueKind == JsonValueKind.Array
             ? root
-            : root.TryGetProperty("history", out var nested) && nested.ValueKind == JsonValueKind.Array
+            : TryGetPropertyIgnoreCase(root, "history", out var nested) && nested.ValueKind == JsonValueKind.Array
                 ? nested
                 : default;
 
         if (history.ValueKind != JsonValueKind.Array)
-            return new(false, null, [], null);
+            return new(false, null, [], "SAM history response does not contain a usable history array.");
 
         var tracks = history.EnumerateArray().Select(ReadTrack).Where(static track => track is not null).Cast<Track>().ToArray();
         if (tracks.Length == 0)
-            return new(false, null, [], null);
+            return new(false, null, [], "SAM history response did not include a valid current track.");
 
         return new(true, tracks[0], tracks.Skip(1).Take(4).ToArray(), null);
     }
@@ -72,27 +87,77 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
         return "/images/station.png";
     }
 
-    private async Task<Broadcast?> LoadSnapshot()
+    private async Task<Broadcast> LoadSnapshot()
     {
-        var path = Path.Combine(environment.WebRootPath, HistoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(path))
-        {
-            logger.LogWarning("SAM history metadata file was not found: {Path}", path);
-            return null;
-        }
+        var source = ResolveSource();
+        logger.LogInformation("Refreshing SAM history from source {Source}", source.Label);
 
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var doc = await JsonDocument.ParseAsync(stream);
-            var parsed = ParseHistorySnapshot(doc.RootElement.GetRawText());
-            return await ApplyArtworkMappings(parsed);
+            var json = source.RemoteUri is not null
+                ? await ReadRemoteJson(source.RemoteUri)
+                : await ReadLocalJson(source.LocalFilePath!);
+
+            var parsed = ParseHistorySnapshot(json) with { Source = source.Label };
+            if (!parsed.Playing || parsed.Current is null)
+                return Unavailable(source.Label, parsed.Error ?? "SAM history did not include a current track.");
+
+            var mapped = await ApplyArtworkMappings(parsed);
+            lastSuccessfulRefresh = DateTimeOffset.UtcNow;
+            return mapped with { Source = source.Label, LastSuccessfulRefresh = lastSuccessfulRefresh, IsStale = false };
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
-            logger.LogWarning(ex, "SAM history metadata could not be read. Keeping last valid broadcast snapshot.");
-            return null;
+            logger.LogWarning(ex, "SAM history refresh failed from source {Source}", source.Label);
+            return Unavailable(source.Label, ex.Message);
         }
+    }
+
+    private Broadcast Unavailable(string source, string message)
+        => new(false, null, [], message, source, lastSuccessfulRefresh, true);
+
+    private async Task<string> ReadRemoteJson(Uri uri)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+
+        var contentType = response.Content.Headers.ContentType?.MediaType;
+        if (contentType is not null && !contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+            throw new JsonException($"Unexpected content type from SAM history source: {contentType}");
+
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    private static async Task<string> ReadLocalJson(string path)
+    {
+        if (!File.Exists(path))
+            throw new IOException($"SAM history metadata file was not found: {path}");
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return await reader.ReadToEndAsync();
+    }
+
+    private (string Label, Uri? RemoteUri, string? LocalFilePath) ResolveSource()
+    {
+        if (environment.IsDevelopment())
+        {
+            var configuredUrl = string.IsNullOrWhiteSpace(developmentHistoryUrl)
+                ? DefaultDevelopmentHistoryUrl
+                : developmentHistoryUrl.Trim();
+
+            if (!Uri.TryCreate(configuredUrl, UriKind.Absolute, out var remoteUri) ||
+                (remoteUri.Scheme != Uri.UriSchemeHttps && remoteUri.Scheme != Uri.UriSchemeHttp))
+            {
+                throw new InvalidOperationException($"Invalid ANEED_SAM_HISTORY_URL value '{configuredUrl}'. Configure an absolute HTTP/HTTPS URL.");
+            }
+
+            return ($"HTTPS: {remoteUri}", remoteUri, null);
+        }
+
+        var path = Path.Combine(environment.WebRootPath, HistoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        return ($"Local file: {path}", null, path);
     }
 
     private async Task<Broadcast> ApplyArtworkMappings(Broadcast broadcast)
@@ -136,12 +201,16 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
 
     private static Track? ReadTrack(JsonElement item)
     {
-        string? ReadString(string name) => item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()?.Trim()
-            : null;
+        string? ReadString(string name)
+        {
+            if (!TryGetPropertyIgnoreCase(item, name, out var value) || value.ValueKind != JsonValueKind.String)
+                return null;
+
+            return value.GetString()?.Trim();
+        }
 
         long? samId = null;
-        if (item.TryGetProperty("id", out var idValue))
+        if (TryGetPropertyIgnoreCase(item, "id", out var idValue))
         {
             if (idValue.ValueKind == JsonValueKind.Number && idValue.TryGetInt64(out var numeric))
                 samId = numeric;
@@ -156,7 +225,38 @@ public sealed class BroadcastService(IWebHostEnvironment environment, ILogger<Br
 
         var album = ReadString("album") ?? string.Empty;
         var picture = ReadString("picture");
-        return new Track(samId, title, artist, album, null, picture, null);
+
+        DateTimeOffset? started = null;
+        if (TryGetPropertyIgnoreCase(item, "date", out var dateValue) && dateValue.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(dateValue.GetString(), out var parsedDate))
+        {
+            started = parsedDate;
+        }
+        else if (TryGetPropertyIgnoreCase(item, "started", out var startedValue) && startedValue.ValueKind == JsonValueKind.String &&
+                 DateTimeOffset.TryParse(startedValue.GetString(), out var parsedStarted))
+        {
+            started = parsedStarted;
+        }
+
+        return new Track(samId, title, artist, album, null, picture, started);
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement item, string name, out JsonElement value)
+    {
+        if (item.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in item.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private static string? ValidatePictureFilename(string? picture)
