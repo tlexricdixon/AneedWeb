@@ -92,13 +92,13 @@ public sealed class DjGroupRoom : IDisposable
                       string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
                       "\n\nContinue naturally as " + profile.Name + " only.";
                 if (musicBrief is not null)
-                    input = "Trusted music context:\\n" + musicBrief +
-                        "\\n\\n" + (recent.Count == 0
+                    input = "Trusted music context:\n" + musicBrief +
+                        "\n\n" + (recent.Count == 0
                             ? "Discuss this song as coworkers with different tastes. Start with one specific production or arrangement observation, not a lighting metaphor."
                             : "Respond to a concrete musical point, challenge it or add an independent observation. Don't recycle the previous DJ's imagery.") +
-                        "\\n\\nRecent studio conversation:\\n" +
-                        string.Join("\\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
-                        "\\n\\nSpeak only as " + profile.Name + ".";
+                        "\n\nRecent studio conversation:\n" +
+                        string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
+                        "\n\nSpeak only as " + profile.Name + ".";
                 var answer = await GenerateReplyAsync(profile, input, cancellationToken);
 
                 lock (_sync)
