@@ -53,10 +53,13 @@ public sealed class DjGroupRoom : IDisposable
     public Task RunThreeTurnsAsync(CancellationToken cancellationToken = default) =>
         RunInternalAsync(false, cancellationToken);
 
+    public Task RunSongOnlyAsync(CancellationToken cancellationToken = default) =>
+        RunInternalAsync(true, cancellationToken, requireClap: false);
+
     public Task RunCurrentSongAsync(CancellationToken cancellationToken = default) =>
         RunInternalAsync(true, cancellationToken);
 
-    private async Task RunInternalAsync(bool useCurrentSong, CancellationToken cancellationToken)
+    private async Task RunInternalAsync(bool useCurrentSong, CancellationToken cancellationToken, bool requireClap = true)
     {
         if (!_enabled) throw new InvalidOperationException("The group experiment is only enabled in Development.");
         if (!ApiKeyConfigured) throw new InvalidOperationException(ConfigurationDiagnostic);
@@ -74,13 +77,13 @@ public sealed class DjGroupRoom : IDisposable
                     throw new InvalidOperationException("No current SAM song ID was found in the broadcast history.");
 
                 var clapNotes = _clap.GetNotes(current.SamSongId);
-                if (string.IsNullOrWhiteSpace(clapNotes))
+                if (string.IsNullOrWhiteSpace(clapNotes) && requireClap)
                     throw new InvalidOperationException("No verified CLAP notes found for the current SAM song. Import a verified CLAP export first.");
 
                 musicBrief = "Current broadcast track (metadata from SAM): " + current.Artist + " — " +
                     current.Title + (string.IsNullOrWhiteSpace(current.Album) ? "" : " (" + current.Album + ")") +
-                    "\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes +
-                    "\nUse these as fallible listening cues; do not invent lyrics, lived experiences or unsupported claims.";
+                    (string.IsNullOrWhiteSpace(clapNotes) ? "" : "\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes) +
+                    "\nDiscuss what is grounded in the supplied metadata. Without CLAP notes, do not claim to have heard the audio, its instruments, lyrics or emotional content.";
             }
             for (var i = 0; i < 3; i++)
             {
