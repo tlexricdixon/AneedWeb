@@ -11,8 +11,8 @@ public sealed class DjGroupRoom : IDisposable
 {
     private const int MaxVisibleMessages = 32;
     private const int ModelHistoryMessages = 12;
+    private const int MaxTurnDiagnostics = 12;
     private const string DefaultModel = "gpt-5.4-mini";
-    private readonly string _model;
     private const string ResponsesEndpoint = "https://api.openai.com/v1/responses";
     private readonly Lock _sync = new();
     private readonly SemaphoreSlim _runGate = new(1, 1);
@@ -20,31 +20,29 @@ public sealed class DjGroupRoom : IDisposable
     private readonly List<DjTurnDiagnostic> _turnDiagnostics = [];
     private readonly HttpClient _http;
     private readonly BroadcastService _broadcast;
-    private readonly DjClapContextStore _clap;
     private readonly string? _apiKey;
     private readonly bool _enabled;
     private readonly string _model;
+    private readonly ILogger<DjGroupRoom> _logger;
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private int _nextSpeaker;
     private CancellationTokenSource? _activeSessionCts;
 
     public event Action? Changed;
 
-    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment, IConfiguration configuration, BroadcastService broadcast, DjClapContextStore clap)
+    public DjGroupRoom(IHttpClientFactory httpClientFactory, IWebHostEnvironment environment, IConfiguration configuration, BroadcastService broadcast, ILogger<DjGroupRoom> logger)
     {
         _enabled = environment.IsDevelopment();
         _apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         _logger = logger;
-        _model = Environment.GetEnvironmentVariable("ANEED_DJ_MODEL") is { Length: > 0 } configuredModel
-            ? configuredModel
-            : "gpt-5.4-mini";
         _http = httpClientFactory.CreateClient("OpenAI");
         _broadcast = broadcast;
-        _clap = clap;
-        // Pick a model without editing source. Keep changes on a local rehearsal branch.
-        _model = string.IsNullOrWhiteSpace(configuration["ANEED_DJ_MODEL"])
-            ? DefaultModel
-            : configuration["ANEED_DJ_MODEL"]!.Trim();
+        var configuredModel = Environment.GetEnvironmentVariable("ANEED_DJ_MODEL");
+        _model = !string.IsNullOrWhiteSpace(configuredModel)
+            ? configuredModel.Trim()
+            : string.IsNullOrWhiteSpace(configuration["ANEED_DJ_MODEL"])
+                ? DefaultModel
+                : configuration["ANEED_DJ_MODEL"]!.Trim();
     }
 
     public void Reset(Guid sessionId)
@@ -155,12 +153,12 @@ public sealed class DjGroupRoom : IDisposable
     }
 
     public Task RunThreeTurnsAsync(CancellationToken cancellationToken = default) =>
-        RunInternalAsync(false, cancellationToken);
+        RunInternalAsync(null, cancellationToken);
 
-    public Task RunCurrentSongAsync(CancellationToken cancellationToken = default) =>
-        RunInternalAsync(true, cancellationToken);
+    public Task RunThreeTurnsAsync(VerifiedMusicContext musicContext, CancellationToken cancellationToken = default) =>
+        RunInternalAsync(musicContext, cancellationToken);
 
-    private async Task RunInternalAsync(bool useCurrentSong, CancellationToken cancellationToken)
+    private async Task RunInternalAsync(VerifiedMusicContext? musicContext, CancellationToken cancellationToken)
     {
         if (!_enabled) throw new InvalidOperationException("The group experiment is only enabled in Development.");
         if (!ApiKeyConfigured) throw new InvalidOperationException(ConfigurationDiagnostic);
@@ -176,22 +174,6 @@ public sealed class DjGroupRoom : IDisposable
             }
             IsRunning = true;
             Changed?.Invoke();
-            string? musicBrief = null;
-            if (useCurrentSong)
-            {
-                var current = (await _broadcast.Get()).Current;
-                if (current?.SamSongId is not > 0)
-                    throw new InvalidOperationException("No current SAM song ID was found in the broadcast history.");
-
-                var clapNotes = _clap.GetNotes(current.SamSongId);
-                if (string.IsNullOrWhiteSpace(clapNotes))
-                    throw new InvalidOperationException("No verified CLAP notes found for the current SAM song. Import a verified CLAP export first.");
-
-                musicBrief = "Current broadcast track (metadata from SAM): " + current.Artist + " — " +
-                    current.Title + (string.IsNullOrWhiteSpace(current.Album) ? "" : " (" + current.Album + ")") +
-                    "\nCLAP-derived candidate audio descriptions (not verified lyrics, emotions or facts): " + clapNotes +
-                    "\nUse these as fallible listening cues; do not invent lyrics, lived experiences or unsupported claims.";
-            }
             for (var i = 0; i < 3; i++)
             {
                 var profile = DjProfiles.All[_nextSpeaker % DjProfiles.All.Count];
@@ -201,15 +183,12 @@ public sealed class DjGroupRoom : IDisposable
                     : "Recent studio conversation:\n" +
                       string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
                       "\n\nContinue naturally as " + profile.Name + " only.";
-                if (musicBrief is not null)
-                    input = "Trusted music context:\n" + musicBrief +
-                        "\n\n" + (recent.Count == 0
-                            ? "Discuss this song as coworkers with different tastes. Start with one specific production or arrangement observation, not a lighting metaphor."
-                            : "Respond to a concrete musical point, challenge it or add an independent observation. Don't recycle the previous DJ's imagery.") +
-                        "\n\nRecent studio conversation:\n" +
-                        string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text)) +
-                        "\n\nSpeak only as " + profile.Name + ".";
-                var answer = await GenerateReplyAsync(profile, input, cancellationToken);
+                if (musicContext is not null)
+                {
+                    input = BuildSongGroundedPrompt(profile.Name, musicContext, recent);
+                    AddTurnDiagnostic(profile, musicContext, input, i + 1);
+                }
+                var answer = await GenerateReplyAsync(profile, input, i + 1, cancellationToken);
 
                 lock (_sync)
                 {
@@ -234,6 +213,7 @@ public sealed class DjGroupRoom : IDisposable
         VerifiedMusicContext musicContext,
         IReadOnlyList<GroupLine> recent)
     {
+        var features = musicContext.AudioFeatures;
         var songContext =
             "Current SAM song (verified metadata):\n" +
             $"- SAM ID: {musicContext.SamSongId}\n" +
@@ -241,19 +221,21 @@ public sealed class DjGroupRoom : IDisposable
             $"- Title: {musicContext.Title}\n" +
             $"- Album: {musicContext.Album ?? "Unknown"}\n" +
             $"- ANEED ID: {musicContext.AneedId?.ToString() ?? "Not resolved"}\n" +
-            $"- CLAP match: {(musicContext.ClapMatchFound ? "verified" : "missing; do not infer analysis observations")}\n" +
-            $"- CLAP model: {musicContext.ClapModel ?? "Not available"}\n" +
-            $"- CLAP version: {musicContext.ClapVersion ?? "Not available"}\n" +
-                $"- Song duration: {(musicContext.DurationSeconds is > 0 ? $"{musicContext.DurationSeconds} seconds (verified)" : "unavailable; estimated scheduling window is used") }\n" +
-            $"- Tempo: {(musicContext.Tempo?.ToString() ?? "Not available in verified analysis data")}\n" +
-            $"- Key: {musicContext.MusicalKey ?? "Not available in verified analysis data"}\n" +
-            "CLAP descriptions are model-generated audio-analysis observations, not guaranteed facts, verified lyrics, or proof that you personally heard the audio.\n" +
-            "Do not infer or invent tempo, key, or any unavailable audio measurements.\n" +
-            (musicContext.Descriptions.Length == 0
-                ? "- CLAP descriptions: missing; audio analysis is unavailable for this song\n"
-                : "- CLAP descriptions (uncertain model observations):\n" + string.Join("\n", musicContext.Descriptions.Select(item => $"  - {item.Text}")) + "\n") +
-            (musicContext.DurationSeconds is null ? string.Empty : $"- Duration: {musicContext.DurationSeconds} seconds\n") +
-            (musicContext.SampleRate is null ? string.Empty : $"- Sample rate: {musicContext.SampleRate} Hz\n");
+            $"- CLAP data: {musicContext.ClapDataSource ?? "missing"}; analysis version {musicContext.ClapVersion ?? "unavailable"}; source {musicContext.ClapModel ?? "unavailable"}/{musicContext.ClapSourceAnalysisVersion ?? "unavailable"}\n" +
+            $"- Measured audio: duration {Format(features?.DurationSeconds, "s")}; BPM estimate {Format(features?.EstimatedBpm, "")}; key estimate {features?.EstimatedKey ?? "missing"} (correlation {Format(features?.KeyCorrelation, "")}); RMS mean/open/close {Format(features?.RmsMean, "")}/{Format(features?.RmsOpening20Seconds, "")}/{Format(features?.RmsClosing20Seconds, "")}; spectral centroid {Format(features?.SpectralCentroidMeanHz, "Hz")}; onsets {Format(features?.OnsetsPerSecond, "/s")}\n" +
+            "BPM and key are estimates. CLAP labels are musical-similarity candidates, not verified genres; cosine/z values are not probabilities. Emotional axes are audio-only model-derived indicators, not calibrated probabilities or psychological facts.\n" +
+            (musicContext.Facets.Length == 0
+                ? "- CLAP facets: missing; legacy descriptions are not verified genres\n"
+                : "- CLAP musical-similarity candidates (ambiguous facets remain uncertain):\n" +
+                  string.Join("\n", musicContext.Facets.Select(facet => $"  - {facet.Name}: {(facet.Top.Length == 0 ? "no candidates" : string.Join(", ", facet.Top.Take(2).Select(item => item.Label)))}{(facet.Ambiguous == true ? " (ambiguous)" : "")}")) + "\n") +
+            (musicContext.MoodAxes.Length == 0
+                ? "- Audio-only emotional signals: missing\n"
+                : "- Audio-only emotional signals (relative model indicators): " +
+                  string.Join("; ", musicContext.MoodAxes.Select(axis => $"{axis.Name} {axis.RelativeSignal?.ToString("0.##") ?? "missing"}{(axis.Ambiguous == true ? " (ambiguous)" : "")}")) + "\n") +
+            (musicContext.Descriptions.Length > 0
+                ? "- Legacy CLAP fallback (unversioned descriptions; tentative): " + string.Join("; ", musicContext.Descriptions.Take(2).Select(item => item.Text)) + "\n"
+                : string.Empty) +
+            "- Lyrics: omitted pending verified analysis schema; do not infer lyric content. Missing measurements remain unknown.\n";
 
         if (recent.Count == 0)
         {
@@ -262,6 +244,9 @@ public sealed class DjGroupRoom : IDisposable
                    " Mention the artist/title, offer one distinct musical angle, and invite the others in." +
                    $" Speak only as {speakerName}.";
         }
+
+    private static string Format(decimal? value, string suffix)
+        => value is null ? "missing" : value.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + suffix;
 
         var dialogue = string.Join("\n", recent.Select(x => x.Speaker + ": " + x.Text));
         return songContext +
