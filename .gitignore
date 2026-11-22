@@ -10,3 +10,4 @@ artifacts/
 /wwwroot/media/covers
 /artist_candidates.tsv
 /dotnet-tools.json
+/wwwroot/images/media/covers

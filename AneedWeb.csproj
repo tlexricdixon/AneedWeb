@@ -25,5 +25,6 @@
 
   <ItemGroup>
     <Folder Include="wwwroot\media\covers\" />
+    <Folder Include="wwwroot\sam\" />
   </ItemGroup>
 </Project>

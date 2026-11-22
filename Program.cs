@@ -9,10 +9,15 @@ builder.Services.AddScoped<SongPopupState>();
 builder.Services.AddHttpClient("Live365", c => { c.BaseAddress = new Uri("https://api.live365.com/"); c.Timeout = TimeSpan.FromSeconds(10); });
 builder.Services.AddHttpClient("OpenAI", c => { c.Timeout = TimeSpan.FromSeconds(60); });
 builder.Services.AddSingleton<BroadcastService>();
+builder.Services.AddSingleton<AzureSqlCatalogRepository>();
+builder.Services.AddSingleton<ClapMusicAnalysisService>();
 // Development-only shared DJ rehearsal; no public chat endpoint or background loop.
 builder.Services.AddScoped<SamClapSchemaService>();
 builder.Services.AddSingleton<DjClapContextStore>();
 builder.Services.AddSingleton<DjGroupRoom>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<DjPlaybackCoordinator>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<DjPlaybackCoordinator>());
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);

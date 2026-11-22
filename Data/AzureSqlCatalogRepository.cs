@@ -20,7 +20,23 @@ public sealed class AzureSqlCatalogRepository
 
     public bool Configured => !string.IsNullOrWhiteSpace(connectionString);
 
-    private async Task<SqlConnection> OpenAsync()
+    public async Task<Guid?> AneedIdForSamSong(long samSongId, CancellationToken cancellationToken = default)
+    {
+        if (!Configured)
+            return null;
+
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var command = new SqlCommand("SELECT [AneedId] FROM [dbo].[SongIdentity] WHERE [SamSongId] = @samSongId", connection);
+        command.Parameters.Add("samSongId", SqlDbType.BigInt).Value = samSongId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken) || reader.IsDBNull(0) || reader.GetFieldType(0) != typeof(Guid))
+            return null;
+
+        var aneedId = reader.GetGuid(0);
+        return await reader.ReadAsync(cancellationToken) ? null : aneedId;
+    }
+
+    private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken = default)
     {
         if (!Configured)
             throw new InvalidOperationException("Azure SQL catalog is not configured.");
@@ -28,7 +44,7 @@ public sealed class AzureSqlCatalogRepository
         var connection = new SqlConnection(connectionString);
         try
         {
-            await connection.OpenAsync();
+            await connection.OpenAsync(cancellationToken);
             return connection;
         }
         catch
