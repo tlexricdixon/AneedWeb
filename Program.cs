@@ -11,6 +11,9 @@ builder.Services.AddHttpClient("OpenAI", c => { c.Timeout = TimeSpan.FromSeconds
 builder.Services.AddSingleton<BroadcastService>();
 builder.Services.AddSingleton<AzureSqlCatalogRepository>();
 builder.Services.AddSingleton<ClapMusicAnalysisService>();
+// Development-only shared DJ rehearsal; no public chat endpoint or background loop.
+builder.Services.AddScoped<SamClapSchemaService>();
+builder.Services.AddSingleton<DjClapContextStore>();
 builder.Services.AddSingleton<DjGroupRoom>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DjPlaybackCoordinator>();
