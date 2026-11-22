@@ -132,44 +132,72 @@ public sealed class ClapMusicAnalysisService(
         if (string.IsNullOrWhiteSpace(mariaDbConnectionString))
             return MusicIntelligence.Unavailable(samSongId, "ANEED_SAM_MARIADB is not configured in the application process.");
 
-        Guid? aneedId;
+        AneedIdLookup lookup;
         try
         {
-            aneedId = await ResolveAneedIdAsync(mariaDbConnectionString, samSongId, cancellationToken);
+            lookup = await ResolveAneedIdAsync(mariaDbConnectionString, samSongId, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception exception)
+        catch (MySqlException exception)
         {
-            logger.LogWarning("Read-only MariaDB identity lookup failed for SAM song ID {SamSongId} ({ErrorType})", samSongId, exception.GetType().Name);
-            return MusicIntelligence.Unavailable(samSongId, "The SAM song ID could not be resolved through the read-only MariaDB identity map.");
+            var failure = exception.Number is 1044 or 1045 or 1698
+                ? "MariaDB authentication or authorization failed"
+                : exception.Number is 0 or 2002 or 2003 or 2005 or 2006 or 2013
+                    ? "MariaDB connection failed"
+                    : "MariaDB identity query failed";
+            logger.LogWarning("{Failure} for SAM song ID {SamSongId} (MariaDB error {ErrorNumber})", failure, samSongId, exception.Number);
+            return MusicIntelligence.Unavailable(samSongId, $"{failure}; no mapping result was obtained.");
+        }
+        catch (InvalidAneedIdException)
+        {
+            logger.LogWarning("MariaDB returned an invalid AneedId GUID for SAM song ID {SamSongId}", samSongId);
+            return MusicIntelligence.Unavailable(samSongId, "MariaDB returned an AneedId value that could not be converted to a GUID.");
         }
 
-        if (aneedId is null)
-            return MusicIntelligence.Unavailable(samSongId, "No valid AneedId GUID mapping exists for this SAM song ID.");
+        if (!lookup.Found)
+            return MusicIntelligence.Unavailable(samSongId, "No AneedId mapping exists for this SAM song ID.");
 
+        var aneedId = lookup.AneedId;
         var postgresConnectionString = Environment.GetEnvironmentVariable("ANEED_POSTGRES");
         if (string.IsNullOrWhiteSpace(postgresConnectionString))
-            return MissingAnalysis(samSongId, aneedId.Value, "ANEED_POSTGRES is not configured in the application process.");
+            return MissingAnalysis(samSongId, aneedId, "ANEED_POSTGRES is not configured in the application process.");
 
         try
         {
-            return await GetClapAnalysisAsync(postgresConnectionString, samSongId, aneedId.Value, cancellationToken);
+            return await GetClapAnalysisAsync(postgresConnectionString, samSongId, aneedId, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (PostgresException exception)
+        {
+            logger.LogError("PostgreSQL CLAP query failed for SAM song ID {SamSongId}; SQLSTATE {SqlState}, category {Category}",
+                samSongId, exception.SqlState, GetPostgresErrorCategory(exception.SqlState));
+            return MissingAnalysis(samSongId, aneedId,
+                $"PostgreSQL CLAP query failed ({GetPostgresErrorCategory(exception.SqlState)}, SQLSTATE {exception.SqlState}).");
+        }
+        catch (NpgsqlException exception)
+        {
+            logger.LogError("PostgreSQL CLAP connection/provider failure for SAM song ID {SamSongId}; SQLSTATE {SqlState}, category {Category}",
+                samSongId, exception.SqlState, GetPostgresErrorCategory(exception.SqlState));
+            return MissingAnalysis(samSongId, aneedId,
+                $"PostgreSQL CLAP connection/provider failure ({GetPostgresErrorCategory(exception.SqlState)}, SQLSTATE {exception.SqlState}).");
+        }
         catch (Exception exception)
         {
-            logger.LogWarning("Read-only PostgreSQL CLAP lookup failed for SAM song ID {SamSongId} ({ErrorType})", samSongId, exception.GetType().Name);
-            return MissingAnalysis(samSongId, aneedId.Value, "The matching CLAP analysis could not be loaded from PostgreSQL.");
+            logger.LogError("PostgreSQL CLAP processing failed for SAM song ID {SamSongId} ({ErrorType})", samSongId, exception.GetType().Name);
+            return MissingAnalysis(samSongId, aneedId, "PostgreSQL CLAP result processing failed.");
         }
     }
 
-    private static async Task<Guid?> ResolveAneedIdAsync(string connectionString, long samSongId, CancellationToken cancellationToken)
+    private readonly record struct AneedIdLookup(bool Found, Guid AneedId);
+    private sealed class InvalidAneedIdException : Exception { }
+
+    private static async Task<AneedIdLookup> ResolveAneedIdAsync(string connectionString, long samSongId, CancellationToken cancellationToken)
     {
         var builder = new MySqlConnectionStringBuilder(connectionString)
         {
@@ -198,12 +226,16 @@ public sealed class ClapMusicAnalysisService(
         };
         command.Parameters.Add("@samSongId", MySqlDbType.Int64).Value = samSongId;
         var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result switch
+        if (result is null or DBNull)
+            return new(false, Guid.Empty);
+
+        var aneedId = result switch
         {
             Guid value => value,
-            string value when Guid.TryParse(value, out var aneedId) => aneedId,
-            _ => null
+            string value when Guid.TryParse(value, out var parsedAneedId) => parsedAneedId,
+            _ => throw new InvalidAneedIdException()
         };
+        return new(true, aneedId);
     }
 
     private static async Task<MusicIntelligence> GetClapAnalysisAsync(
@@ -227,7 +259,7 @@ public sealed class ClapMusicAnalysisService(
         }
 
         await using var command = new NpgsqlCommand("""
-            SELECT i.aneed_id, e.model, e.version, e.top_descriptions
+            SELECT i.aneed_id, e.model_id, e.analysis_version, e.top_descriptions
             FROM music.inventory AS i
             LEFT JOIN music.audio_embeddings AS e ON e.aneed_id = i.aneed_id
             WHERE i.aneed_id = @aneedId
@@ -238,12 +270,14 @@ public sealed class ClapMusicAnalysisService(
         command.Parameters.Add("aneedId", NpgsqlDbType.Uuid).Value = aneedId;
 
         var inventoryFound = false;
+        var analysisRecordFound = false;
         MusicIntelligence? matchedAnalysis = null;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
             {
                 inventoryFound = true;
+                analysisRecordFound |= !reader.IsDBNull(1) || !reader.IsDBNull(2) || !reader.IsDBNull(3);
                 if (reader.IsDBNull(0) || reader.GetGuid(0) != aneedId || reader.IsDBNull(3))
                     continue;
 
@@ -277,8 +311,8 @@ public sealed class ClapMusicAnalysisService(
                     null,
                     null,
                     null,
-                    reader.IsDBNull(1) ? null : reader.GetString(1),
-                    reader.IsDBNull(2) ? null : reader.GetString(2));
+                    reader.IsDBNull(1) ? null : reader.GetValue(1).ToString(),
+                    reader.IsDBNull(2) ? null : reader.GetValue(2).ToString());
             }
         }
 
@@ -286,13 +320,33 @@ public sealed class ClapMusicAnalysisService(
         if (matchedAnalysis is not null)
             return matchedAnalysis;
 
-        return MissingAnalysis(samSongId, aneedId, inventoryFound
-            ? "No populated CLAP descriptions are available for this AneedId."
-            : "No PostgreSQL inventory record matches this AneedId.");
+        return MissingAnalysis(samSongId, aneedId, !inventoryFound
+            ? "No PostgreSQL inventory record matches this AneedId."
+            : !analysisRecordFound
+                ? "No PostgreSQL CLAP analysis record matches this AneedId."
+                : "A PostgreSQL CLAP analysis record exists, but it contains no usable top_descriptions.");
     }
 
     private static MusicIntelligence MissingAnalysis(long samSongId, Guid aneedId, string error)
         => new(samSongId, aneedId, null, null, null, true, false, [], null, null, null, null, error);
+
+    private static string GetPostgresErrorCategory(string? sqlState)
+        => sqlState switch
+        {
+            "3D000" => "invalid database name",
+            "3F000" => "invalid schema name",
+            "42P01" => "undefined table",
+            "42703" => "undefined column",
+            null => "connection/provider error",
+            _ when sqlState.StartsWith("08", StringComparison.Ordinal) => "connection exception",
+            _ when sqlState.StartsWith("28", StringComparison.Ordinal) => "authentication/authorization exception",
+            _ when sqlState.StartsWith("42", StringComparison.Ordinal) => "SQL syntax/schema exception",
+            _ when sqlState.StartsWith("23", StringComparison.Ordinal) => "integrity constraint exception",
+            _ when sqlState.StartsWith("22", StringComparison.Ordinal) => "data exception",
+            _ when sqlState.StartsWith("53", StringComparison.Ordinal) => "insufficient resources",
+            _ when sqlState.StartsWith("57", StringComparison.Ordinal) => "operator intervention",
+            _ => "PostgreSQL server exception"
+        };
 
     public static IReadOnlyList<ClapDescription> ParseDescriptions(string json)
     {

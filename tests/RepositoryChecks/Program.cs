@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -88,6 +89,30 @@ try
     Check(clapDescriptions[0].Text == "an upbeat dance rock song with a steady club rhythm" && clapDescriptions[0].Similarity == 0.4362m,
         "CLAP observation text and similarity should be preserved exactly.");
 
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_SAM_MARIADB")) &&
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANEED_POSTGRES")))
+    {
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        var analysisService = new ClapMusicAnalysisService(new TestWebHostEnvironment(), loggerFactory.CreateLogger<ClapMusicAnalysisService>());
+        try
+        {
+            var controlAnalysis = await analysisService.GetForSamSongAsync(11724);
+            Check(controlAnalysis.AneedId == Guid.Parse("95978eb4-ffa5-4aa8-b061-1a8c087c8df8"),
+                $"SAM 11724 must resolve to the verified AneedId control GUID. Service result: {controlAnalysis.Error ?? "A different AneedId was returned."}");
+            Check(controlAnalysis.ClapMatchFound && controlAnalysis.Descriptions.Count > 0,
+                $"SAM 11724 must return its matching PostgreSQL CLAP descriptions. Service result: {controlAnalysis.Error ?? "No CLAP descriptions were returned."}");
+            Console.WriteLine("PASS: Live read-only SAM 11724 identity and PostgreSQL CLAP control-record check.");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"FAIL: Live read-only SAM 11724 control-record check: {exception.Message}");
+        }
+    }
+    else
+    {
+        Console.WriteLine("SKIP: Live SAM/MariaDB and PostgreSQL verification requires ANEED_SAM_MARIADB and ANEED_POSTGRES in this process.");
+    }
+
     Environment.SetEnvironmentVariable("OPENAI_API_KEY", "repository-check-test-key");
     var rehearsalTrack = new Track(43210, "Verified Title", "Verified Artist", "Verified Album", null, null, null);
     var rehearsalAneedId = Guid.Parse("d04f8517-6aa8-4875-8119-a5970708b1e6");
@@ -146,6 +171,8 @@ try
         for (var turn = 0; turn < expectedProfiles.Length; turn++)
             Check(rehearsalHandler.Requests[turn].GetProperty("instructions").GetString()!.Contains(expectedProfiles[turn].CharacterPrompt, StringComparison.Ordinal),
                 $"Turn {turn + 1} must retain the selected DJ's character prompt.");
+        Check(rehearsalHandler.Requests.All(request => request.GetProperty("max_output_tokens").GetInt32() == 800),
+            "Every DJ request must use the requested 800-token output budget.");
 
         var diagnostics = room.DiagnosticsSnapshot();
         Check(diagnostics.Count == 3 && diagnostics.All(diagnostic => diagnostic.MusicContextReceived),
@@ -180,6 +207,52 @@ try
             "Development diagnostics must confirm metadata context was received while reporting missing analysis.");
     }
 
+    var partialHandler = new RecordingOpenAiHandler { IncompleteOnRequestNumber = 2 };
+    using (var room = new DjGroupRoom(new TestHttpClientFactory(partialHandler), new TestWebHostEnvironment()))
+    {
+        var failedAfterFirstReply = false;
+        try
+        {
+            await room.RunThreeTurnsAsync(sharedMusicContext);
+        }
+        catch (InvalidOperationException exception)
+        {
+            failedAfterFirstReply = exception.Message.Contains("status: incomplete", StringComparison.Ordinal) &&
+                                    exception.Message.Contains("reason: max_output_tokens", StringComparison.Ordinal);
+        }
+
+        Check(failedAfterFirstReply, "An incomplete response without text must report its response status and reason.");
+        Check(room.Snapshot().Count == 1 && room.Snapshot()[0].Text == "Rehearsal reply 1.",
+            "A failed later turn must leave earlier successful DJ replies visible.");
+        var partialDiagnostic = room.DiagnosticsSnapshot().Single(diagnostic => diagnostic.Turn == 2);
+        Check(partialDiagnostic.ResponseStatus == "incomplete" && partialDiagnostic.IncompleteReason == "max_output_tokens" &&
+              partialDiagnostic.OutputTokens == 800 && partialDiagnostic.UsableTextReturned == false,
+            "The failed turn diagnostics must include status, incomplete reason, output token usage, and no usable text.");
+    }
+
+    var incompleteWithTextHandler = new RecordingOpenAiHandler
+    {
+        IncompleteOnRequestNumber = 2,
+        IncludeTextInIncompleteResponse = true
+    };
+    using (var room = new DjGroupRoom(new TestHttpClientFactory(incompleteWithTextHandler), new TestWebHostEnvironment()))
+    {
+        try
+        {
+            await room.RunThreeTurnsAsync(sharedMusicContext);
+        }
+        catch (InvalidOperationException exception)
+        {
+            Check(exception.Message.Contains("incomplete response with usable text", StringComparison.Ordinal),
+                "An incomplete response that includes text must say so accurately.");
+        }
+
+        var incompleteWithTextDiagnostic = room.DiagnosticsSnapshot().Single(diagnostic => diagnostic.Turn == 2);
+        Check(incompleteWithTextDiagnostic.ResponseStatus == "incomplete" && incompleteWithTextDiagnostic.UsableTextReturned == true,
+            "The failed turn diagnostics must record when an incomplete response included usable text.");
+        Check(room.Snapshot().Count == 1, "A response marked incomplete must not replace or remove successful earlier turns.");
+    }
+
     Check(BroadcastService.BuildArtworkFallback("https://cdn.example/cover.jpg", "sam.jpg") == "https://cdn.example/cover.jpg", "Mapped SQL artwork must win over SAM picture fallback.");
     Check(BroadcastService.BuildArtworkFallback(null, "sam cover.jpg") == "/media/covers/sam%20cover.jpg", "Valid SAM picture should map to /media/covers fallback.");
     Check(BroadcastService.BuildArtworkFallback(null, "../sam.jpg") == "/images/station.png", "Invalid SAM picture filenames must fall back to station artwork.");
@@ -204,6 +277,7 @@ sealed class TestWebHostEnvironment : IWebHostEnvironment
     public string EnvironmentName { get; set; } = "Development";
     public string WebRootPath { get; set; } = Directory.GetCurrentDirectory();
     public string ContentRootPath { get; set; } = Directory.GetCurrentDirectory();
+
     public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
     public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }
@@ -211,6 +285,8 @@ sealed class TestWebHostEnvironment : IWebHostEnvironment
 sealed class RecordingOpenAiHandler : HttpMessageHandler
 {
     public List<JsonElement> Requests { get; } = [];
+    public int? IncompleteOnRequestNumber { get; init; }
+    public bool IncludeTextInIncompleteResponse { get; init; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -221,12 +297,17 @@ sealed class RecordingOpenAiHandler : HttpMessageHandler
         {
             Content = JsonContent.Create(new
             {
+                status = IncompleteOnRequestNumber == Requests.Count ? "incomplete" : "completed",
+                incomplete_details = IncompleteOnRequestNumber == Requests.Count ? new { reason = "max_output_tokens" } : null,
+                usage = new { output_tokens = IncompleteOnRequestNumber == Requests.Count ? 800 : 24 },
                 output = new[]
                 {
                     new
                     {
                         type = "message",
-                        content = new[] { new { type = "output_text", text = reply } }
+                        content = IncompleteOnRequestNumber == Requests.Count && !IncludeTextInIncompleteResponse
+                            ? Array.Empty<object>()
+                            : [new { type = "output_text", text = reply }]
                     }
                 }
             })

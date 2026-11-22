@@ -11,8 +11,10 @@ builder.Services.AddHttpClient("OpenAI", c => { c.Timeout = TimeSpan.FromSeconds
 builder.Services.AddSingleton<BroadcastService>();
 builder.Services.AddSingleton<AzureSqlCatalogRepository>();
 builder.Services.AddSingleton<ClapMusicAnalysisService>();
-// Development-only shared DJ rehearsal; no public chat endpoint or background loop.
 builder.Services.AddSingleton<DjGroupRoom>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<DjPlaybackCoordinator>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<DjPlaybackCoordinator>());
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
