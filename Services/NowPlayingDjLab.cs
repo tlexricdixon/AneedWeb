@@ -18,7 +18,7 @@ public sealed class NowPlayingDjLab(
 {
     public sealed record Line(string Speaker, string Text);
     public sealed record Preview(long SamSongId, Guid AneedId, string Artist, string Title,
-        string SongContext, int PriorRehearsalLines, int ApprovedMemoryCount, int DjProfiles);
+        string SongContext, string ContextSource, int PriorRehearsalLines, int ApprovedMemoryCount, int DjProfiles);
     public sealed record Result(Preview Context, Guid ConversationId, IReadOnlyList<Line> Lines,
         int InputTokens, int OutputTokens);
 
@@ -207,7 +207,8 @@ public sealed class NowPlayingDjLab(
         await using (var readonlyCmd = new NpgsqlCommand("SET TRANSACTION READ ONLY", db, tx))
             await readonlyCmd.ExecuteNonQueryAsync(ct);
 
-        string songContext;
+        // Imported rehearsal is useful continuity, never a prerequisite.
+        string? importedContext;
         await using (var cmd = new NpgsqlCommand("""
             SELECT c.song_context::text
             FROM ai.conversations c
@@ -218,8 +219,47 @@ public sealed class NowPlayingDjLab(
             """, db, tx))
         {
             cmd.Parameters.AddWithValue("id", id);
-            songContext = (string?)await cmd.ExecuteScalarAsync(ct)
-                ?? throw new InvalidOperationException("No imported musical rehearsal for this song.");
+            importedContext = (string?)await cmd.ExecuteScalarAsync(ct);
+        }
+
+        // Recover from a missing rehearsal using verified identity and available
+        // analysis from the SAM recovery service. An absent analysis remains absent,
+        // rather than being invented from the title.
+        string songContext;
+        string contextSource;
+        if (importedContext is not null)
+        {
+            songContext = importedContext;
+            contextSource = "Imported DJ rehearsal + song analysis";
+        }
+        else
+        {
+            var sound = match.AudioFeatures;
+            var lyrics = match.Lyrics?.IsValidFor(id) == true ? match.Lyrics : null;
+            songContext = JsonSerializer.Serialize(new
+            {
+                aneed_id = id,
+                sam_song_id = track.SamSongId.Value,
+                artist = track.Artist,
+                title = track.Title,
+                album = track.Album,
+                duration_seconds = sound?.DurationSeconds ?? match.DurationSeconds,
+                bpm = sound?.EstimatedBpm ?? match.Tempo,
+                musical_key = sound?.EstimatedKey ?? match.MusicalKey,
+                clap_descriptions = match.Descriptions.Take(4).Select(x => x.Text).ToArray(),
+                clap_facets = match.ClapProvenanceVerified ? match.Facets : null,
+                mood_axes = match.ClapProvenanceVerified ? match.MoodAxes : null,
+                lyric_version = lyrics?.Version,
+                lyric_themes = lyrics?.Themes,
+                lyric_emotions = lyrics?.Emotions,
+                lyric_narrative = lyrics?.Narrative,
+                lyric_relationships = lyrics?.Relationships,
+                lyric_interpretation = lyrics?.Interpretation,
+                analysis_notice = "Only the non-null supplied measurements and interpretations are available; absent entries are unknown."
+            });
+            contextSource = "Live SAM + music analysis" +
+                (match.ClapMatchFound ? " (CLAP present)" : " (CLAP unavailable)") +
+                (lyrics is null ? "; no verified lyrics" : "; lyric interpretation present");
         }
 
         var profiles = new List<(string Name, string Profile)>();
@@ -278,7 +318,7 @@ public sealed class NowPlayingDjLab(
         await tx.CommitAsync(ct);
         return new ContextData(
             new Preview(track.SamSongId.Value, id, track.Artist, track.Title,
-                songContext, history.Count, memories.Count, profiles.Count),
+                songContext, contextSource, history.Count, memories.Count, profiles.Count),
             sharedWorld, profiles, history, memories);
     }
 }
