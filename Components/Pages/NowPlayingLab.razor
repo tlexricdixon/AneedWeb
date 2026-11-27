@@ -1,0 +1,101 @@
+@page "/studio/now-playing-lab"
+@using AneedWeb.Services
+@inject NowPlayingDjLab Lab
+@implements IDisposable
+
+<PageTitle>Now Playing AI lab — ANEED</PageTitle>
+<h1>Now Playing AI lab</h1>
+<p>Development-only. Resolve the current SAM song, inspect its imported rehearsal context, then explicitly generate one fresh draft conversation. Nothing is broadcast or published.</p>
+
+@if (busy)
+{
+    <p role="status">Checking ANEED context…</p>
+}
+<div class="mb-3">
+    <button class="btn btn-outline-primary me-2" type="button" disabled="@busy" @onclick="PreviewAsync">
+        Preview current song context
+    </button>
+    <button class="btn btn-primary" type="button" disabled="@(busy || preview is null || !Environment.IsDevelopment())" @onclick="GenerateAsync">
+        Generate one local draft
+    </button>
+</div>
+@if (!Environment.IsDevelopment())
+{
+    <p role="status">The laboratory is disabled outside Development.</p>
+}
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <p role="status">@message</p>
+}
+@if (preview is not null)
+{
+    <section class="card p-3 mb-3" aria-label="Verified song context">
+        <h2 class="h5">@preview.Artist — @preview.Title</h2>
+        <p>SAM ID: @preview.SamSongId</p>
+        <p>ANEED ID: <code>@preview.AneedId</code></p>
+        <p>@preview.PriorRehearsalLines original dialogue lines; @preview.DjProfiles active DJ profiles; @preview.ApprovedMemoryCount approved memories available.</p>
+    </section>
+}
+@if (result is not null)
+{
+    <section aria-label="New draft DJ conversation">
+        <h2 class="h5">New draft conversation</h2>
+        <p>Conversation: <code>@result.ConversationId</code> · @result.InputTokens input / @result.OutputTokens output tokens. Not canon.</p>
+        @foreach (var line in result.Lines)
+        {
+            <article class="card p-3 mb-2">
+                <strong>@line.Speaker</strong>
+                <p class="mb-0" style="white-space:pre-wrap">@line.Text</p>
+            </article>
+        }
+    </section>
+}
+
+@code {
+    [Inject] private IWebHostEnvironment Environment { get; set; } = default!;
+    private readonly CancellationTokenSource lifetime = new();
+    private NowPlayingDjLab.Preview? preview;
+    private NowPlayingDjLab.Result? result;
+    private bool busy;
+    private string? message;
+
+    private async Task PreviewAsync()
+    {
+        busy = true;
+        message = null;
+        preview = null;
+        result = null;
+        try
+        {
+            preview = await Lab.InspectAsync(lifetime.Token);
+            message = "Current SAM song resolved. Draft generation is available.";
+        }
+        catch (OperationCanceledException) { message = "Canceled."; }
+        catch (Exception ex) when (ex is InvalidOperationException or Npgsql.NpgsqlException)
+        {
+            message = ex is InvalidOperationException ? ex.Message : "PostgreSQL context unavailable; check server logs.";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task GenerateAsync()
+    {
+        busy = true;
+        message = null;
+        result = null;
+        try
+        {
+            result = await Lab.GenerateAsync(lifetime.Token);
+            preview = result.Context;
+            message = "Fresh DJ draft saved locally; no broadcast changes.";
+        }
+        catch (OperationCanceledException) { message = "Song changed or request canceled. No draft saved."; }
+        catch (Exception ex) when (ex is InvalidOperationException or Npgsql.NpgsqlException or System.Text.Json.JsonException or InvalidDataException)
+        {
+            message = ex is InvalidOperationException ? ex.Message : "Generation or persistence failed; inspect server logs.";
+        }
+        finally { busy = false; }
+    }
+
+    public void Dispose() => lifetime.Cancel();
+}
