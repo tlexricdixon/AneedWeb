@@ -16,6 +16,7 @@ builder.Services.AddScoped<SamClapSchemaService>();
 builder.Services.AddSingleton<DjClapContextStore>();
 builder.Services.AddSingleton<DjGroupRoom>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<NowPlayingDjLab>();
 builder.Services.AddSingleton<DjPlaybackCoordinator>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<DjPlaybackCoordinator>());
 var app = builder.Build();
