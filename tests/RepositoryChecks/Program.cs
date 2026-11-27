@@ -15,8 +15,36 @@ void Check(bool condition, string message)
     if (!condition) throw new Exception(message);
 }
 
+DjGroupRoom CreateTestRoom(HttpMessageHandler handler)
+{
+    var environment = new TestWebHostEnvironment();
+    var configuration = new ConfigurationBuilder().Build();
+    var loggerFactory = LoggerFactory.Create(_ => { });
+    var httpClientFactory = new TestHttpClientFactory(handler);
+    var broadcast = new BroadcastService(environment, loggerFactory.CreateLogger<BroadcastService>(), configuration, httpClientFactory);
+    return new DjGroupRoom(httpClientFactory, environment, configuration, broadcast, loggerFactory.CreateLogger<DjGroupRoom>());
+}
+
+var rng = new Random(731);
+var draws = Enumerable.Range(0, 256).Select(_ => DjPlaybackCoordinator.SelectRoster(DjProfiles.All, rng)).ToArray();
+Check(draws.All(ids => ids.Length is >= 5 and <= 8 && ids.Distinct().Count() == ids.Length), "Each lineup needs 5–8 distinct DJs.");
+Check(draws.Select(ids => ids.Length).Distinct().Count() == 4 && draws.Select(ids => ids[0]).Distinct().Count() == 8,
+    "All four sizes and all eight opening speakers must be possible.");
+var fullRoster = draws.First(ids => ids.Length == 8);
+var start = DateTimeOffset.UtcNow;
+foreach (var seconds in new[] { 4, 30, 120, 300 })
+{
+    var slots = DjPlaybackCoordinator.BuildSchedule(start, TimeSpan.FromSeconds(seconds), start, fullRoster);
+    Check(slots.Select(t => t.DjId).SequenceEqual(fullRoster), "Even skipped slots must retain lineup order.");
+    Check(slots[0].ScheduledAt == start.AddMilliseconds(50 * seconds) && slots[^1].ScheduledAt == start.AddMilliseconds(850 * seconds), "Slots must span 5% to 85%.");
+    var pending = slots.Where(t => t.Status == "Pending").ToArray();
+    Check(pending.Zip(pending.Skip(1)).All(pair => (pair.Second.ScheduledAt - pair.First.ScheduledAt).TotalSeconds >= 20), "Unsafe spacing.");
+    Check(seconds switch { 4 => pending.Length == 0, 300 => pending.Length == 8, _ => pending.Length is > 0 and < 8 }, "Unexpected number of safe turns.");
+}
+
 var originalConnection = Environment.GetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION");
 var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+var originalLimit = Environment.GetEnvironmentVariable("ANEED_DJ_MAX_OUTPUT_TOKENS");
 try
 {
     Environment.SetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION", null);
@@ -114,6 +142,7 @@ try
     }
 
     Environment.SetEnvironmentVariable("OPENAI_API_KEY", "repository-check-test-key");
+    Environment.SetEnvironmentVariable("ANEED_DJ_MAX_OUTPUT_TOKENS", "800");
     var rehearsalTrack = new Track(43210, "Verified Title", "Verified Artist", "Verified Album", null, null, null);
     var rehearsalAneedId = Guid.Parse("d04f8517-6aa8-4875-8119-a5970708b1e6");
     var rehearsalAnalysis = new MusicIntelligence(
@@ -129,8 +158,77 @@ try
         44100,
         118.25m,
         "E minor",
-        null);
+        null) with
+    {
+        AudioFeatures = new MeasuredAudioFeatures(214.5m, 118.25m, "E minor", null, null, null, null, null, null),
+        ClapDataSource = "Legacy test fixture"
+    };
+    var lyric = LyricInterpretation.FromRow(rehearsalAneedId, LyricInterpretation.SupportedVersion, "complete", "test-model", "fixture",
+        DateTime.UnixEpoch, 0.8m, "[\"departures\"]", "[\"ambivalence\"]", """{"perspective":"observer","conflict":"stay or leave","lyrics":"excluded material"}""",
+        """[{"dynamic":"estrangement","quotation":"excluded material"}]""", new string('z', 5000)) ?? throw new Exception("Valid lyric projection rejected.");
+    Check(lyric.Interpretation?.Length == 320 && lyric.Narrative!.Contains("observer") && !lyric.Narrative.Contains("excluded material"), "Interpretation must be bounded and allowlisted.");
+    rehearsalAnalysis = rehearsalAnalysis with { Lyrics = lyric };
+    foreach (var invalid in new[] { rehearsalAnalysis with { Lyrics = null }, rehearsalAnalysis with { Lyrics = lyric with { Status = "pending" } },
+        rehearsalAnalysis with { Lyrics = lyric with { Version = "unsupported" } }, rehearsalAnalysis with { Lyrics = lyric with { AneedId = Guid.Empty } },
+        rehearsalAnalysis with { SamSongId = 12345 } })
+        Check(VerifiedMusicContext.Create(rehearsalTrack, invalid).Lyrics is null, "Missing, incomplete, unrelated or unsupported interpretation must not reach a DJ.");
     var sharedMusicContext = VerifiedMusicContext.Create(rehearsalTrack, rehearsalAnalysis);
+    var originalMaria = Environment.GetEnvironmentVariable("ANEED_SAM_MARIADB");
+    var originalDuration = Environment.GetEnvironmentVariable("ANEED_DJ_ESTIMATED_DURATION_SECONDS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ANEED_SAM_MARIADB", null);
+        Environment.SetEnvironmentVariable("ANEED_DJ_ESTIMATED_DURATION_SECONDS", "30");
+        using var handler = new DelayedReplyHandler();
+        using var logs = LoggerFactory.Create(_ => { });
+        var host = new TestWebHostEnvironment();
+        var broadcast = new BroadcastService(host, logs.CreateLogger<BroadcastService>(), configuration, new TestHttpClientFactory(handler));
+        using var room = CreateTestRoom(handler);
+        using var playback = new DjPlaybackCoordinator(broadcast, new ClapMusicAnalysisService(host, logs.CreateLogger<ClapMusicAnalysisService>()), room,
+            host, logs.CreateLogger<DjPlaybackCoordinator>(), TimeProvider.System);
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var firstEvent = new Broadcast(true, rehearsalTrack, [], null);
+        await playback.ObserveBroadcastAsync(firstEvent, stop.Token);
+        var first = playback.Snapshot();
+        await playback.ObserveBroadcastAsync(firstEvent, stop.Token);
+        Check(ReferenceEquals(first.SelectedDjIds, playback.Snapshot().SelectedDjIds) && first.SessionId == playback.Snapshot().SessionId, "Repeated polls must reuse the session lineup.");
+        await handler.Started.Task.WaitAsync(stop.Token);
+        await playback.ObserveBroadcastAsync(firstEvent with { Current = rehearsalTrack with { Started = DateTimeOffset.UtcNow, Title = "Next playback" } }, stop.Token);
+        var next = playback.Snapshot();
+        Check(next.SessionId != first.SessionId && !ReferenceEquals(next.SelectedDjIds, first.SelectedDjIds), "A replay needs a fresh lineup draw.");
+        await handler.Canceled.Task.WaitAsync(stop.Token);
+        handler.Release.TrySetResult();
+        while (playback.Snapshot().Lines.Count == 0) await Task.Delay(20, stop.Token);
+        var result = playback.Snapshot();
+        Check(handler.MaxActive == 1 && result.Lines.All(line => line.SessionId == next.SessionId && line.Text == "New reply") &&
+            result.Turns.Any(turn => turn.Status == "Complete" && turn.ActualAt.HasValue), "Requests must not overlap or publish a stale reply.");
+        await stop.CancelAsync();
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ANEED_SAM_MARIADB", originalMaria);
+        Environment.SetEnvironmentVariable("ANEED_DJ_ESTIMATED_DURATION_SECONDS", originalDuration);
+    }
+    var scheduledHandler = new RecordingOpenAiHandler();
+    using (var room = CreateTestRoom(scheduledHandler))
+    {
+        var session = Guid.NewGuid();
+        room.Reset(session);
+        var due = fullRoster.Select((id, i) => new DjScheduledTurn(i + 1, id, DjProfiles.Get(id).Name, DateTimeOffset.UtcNow, null, "Pending")).ToArray();
+        await room.RunScheduledTurnsAsync(sharedMusicContext, session, due, DateTimeOffset.UtcNow.AddMinutes(1),
+            id => id == session, (id, commit) => { if (id != session) return false; commit(); return true; }, (_, _) => { }, default);
+        Check(room.Snapshot().Select(line => line.DjId).SequenceEqual(fullRoster) && room.DiagnosticsSnapshot().Select(d => d.DjId).SequenceEqual(fullRoster), "Scheduled speakers must match replies and diagnostics.");
+        for (var i = 0; i < due.Length; i++)
+        {
+            var request = scheduledHandler.Requests[i];
+            Check(request.GetProperty("instructions").GetString()!.Contains(DjProfiles.BuildSystemPrompt(DjProfiles.Get(due[i].DjId))), "Wrong character instructions.");
+            var input = request.GetProperty("input").GetString()!;
+            Check(input.Contains("SAM ID: 43210") && due.Take(i).All(t => input.Contains($"{t.Speaker}: Rehearsal reply {t.Turn}.")), "Missing shared song or conversation history.");
+            Check(new[] { "Lyrical Interpretation:", "departures", "ambivalence", "observer", "stay or leave", "estrangement", lyric.Version, lyric.Model, lyric.Status }.All(input.Contains) &&
+                !input.Contains("excluded material"), "Every scheduled DJ must receive only the verified interpretation and its provenance.");
+        }
+
+    }
     Check(sharedMusicContext.Descriptions.Length == 1, "Verified context must snapshot the matched CLAP description.");
     var mismatchedAnalysisContext = VerifiedMusicContext.Create(rehearsalTrack, rehearsalAnalysis with { SamSongId = 43211 });
     Check(mismatchedAnalysisContext.AneedId is null && !mismatchedAnalysisContext.ClapMatchFound &&
@@ -138,7 +236,7 @@ try
         "A CLAP analysis with a different SAM ID must not be attributed to the current song.");
 
     var rehearsalHandler = new RecordingOpenAiHandler();
-    using (var room = new DjGroupRoom(new TestHttpClientFactory(rehearsalHandler), new TestWebHostEnvironment()))
+    using (var room = CreateTestRoom(rehearsalHandler))
     {
         await room.RunThreeTurnsAsync(sharedMusicContext);
         Check(rehearsalHandler.Requests.Count == 3, "A rehearsal should issue exactly three OpenAI requests.");
@@ -153,12 +251,12 @@ try
             Check(input.Contains("Artist: Verified Artist", StringComparison.Ordinal) && input.Contains("Title: Verified Title", StringComparison.Ordinal),
                 "Every DJ request must include the verified artist/title.");
             Check(input.Contains(rehearsalAneedId.ToString(), StringComparison.Ordinal), "Every DJ request must include the permanent AneedId GUID.");
-            Check(input.Contains("a warm synth bass and crisp hand percussion (similarity 0.8123)", StringComparison.Ordinal),
-                "Every DJ request must include the same matched CLAP description and score.");
-            Check(input.Contains("Tempo: 118.25", StringComparison.Ordinal) && input.Contains("Key: E minor", StringComparison.Ordinal),
-                "Every DJ request must include the verified tempo and key.");
-            Check(input.Contains("Duration: 214.5 seconds", StringComparison.Ordinal) && input.Contains("Sample rate: 44100 Hz", StringComparison.Ordinal),
-                "Every DJ request must include available verified audio features.");
+            Check(input.Contains("Legacy CLAP fallback (unversioned descriptions; tentative): a warm synth bass and crisp hand percussion", StringComparison.Ordinal),
+                "Every DJ request must include the same legacy CLAP fallback description with its uncertainty label.");
+            Check(input.Contains("BPM estimate 118.25", StringComparison.Ordinal) && input.Contains("key estimate E minor", StringComparison.Ordinal),
+                "Every DJ request must include the measured audio BPM and key estimates.");
+            Check(input.Contains("duration 214.5s", StringComparison.Ordinal),
+                "Every DJ request must include the available measured audio duration.");
         }
 
         Check(!requestInputs[0].Contains("Recent studio conversation:", StringComparison.Ordinal), "The first DJ should start without prior turns.");
@@ -186,7 +284,7 @@ try
     Check(!metadataOnlyContext.ClapMatchFound && metadataOnlyContext.Tempo is null && metadataOnlyContext.MusicalKey is null,
         "Missing analysis must not retain or invent audio measurements.");
     var metadataHandler = new RecordingOpenAiHandler();
-    using (var room = new DjGroupRoom(new TestHttpClientFactory(metadataHandler), new TestWebHostEnvironment()))
+    using (var room = CreateTestRoom(metadataHandler))
     {
         await room.RunThreeTurnsAsync(metadataOnlyContext);
         Check(metadataHandler.Requests.Count == 3, "Metadata-only rehearsal should still issue three requests.");
@@ -195,12 +293,9 @@ try
             var input = request.GetProperty("input").GetString()!;
             Check(input.Contains("Verified Artist", StringComparison.Ordinal) && input.Contains("Verified Title", StringComparison.Ordinal),
                 "All DJs must receive verified metadata when analysis is missing.");
-            Check(input.Contains("audio analysis is unavailable", StringComparison.Ordinal) &&
-                  input.Contains("Tempo: Not available in verified analysis data", StringComparison.Ordinal) &&
-                  input.Contains("Key: Not available in verified analysis data", StringComparison.Ordinal),
+            Check(input.Contains("Lyrical Interpretation: unavailable", StringComparison.Ordinal) && input.Contains("CLAP facets: missing", StringComparison.Ordinal) &&
+                  input.Contains("Measured audio: duration missing; BPM estimate missing; key estimate missing", StringComparison.Ordinal),
                 "All DJs must be told analysis is missing without fabricated measurements.");
-            Check(input.Contains("Do not infer or invent tempo, key, or any unavailable audio measurements.", StringComparison.Ordinal),
-                "All DJs must be explicitly instructed not to invent missing audio measurements.");
         }
         var metadataDiagnostics = room.DiagnosticsSnapshot();
         Check(metadataDiagnostics.Count == 3 && metadataDiagnostics.All(diagnostic => diagnostic.MusicContextReceived && diagnostic.AnalysisMatchStatus == "Missing"),
@@ -208,7 +303,7 @@ try
     }
 
     var partialHandler = new RecordingOpenAiHandler { IncompleteOnRequestNumber = 2 };
-    using (var room = new DjGroupRoom(new TestHttpClientFactory(partialHandler), new TestWebHostEnvironment()))
+    using (var room = CreateTestRoom(partialHandler))
     {
         var failedAfterFirstReply = false;
         try
@@ -217,8 +312,8 @@ try
         }
         catch (InvalidOperationException exception)
         {
-            failedAfterFirstReply = exception.Message.Contains("status: incomplete", StringComparison.Ordinal) &&
-                                    exception.Message.Contains("reason: max_output_tokens", StringComparison.Ordinal);
+            failedAfterFirstReply = exception.Message.Contains("OpenAI response incomplete (max_output_tokens)", StringComparison.Ordinal) &&
+                                    exception.Message.Contains("usable text returned: no", StringComparison.Ordinal);
         }
 
         Check(failedAfterFirstReply, "An incomplete response without text must report its response status and reason.");
@@ -235,7 +330,7 @@ try
         IncompleteOnRequestNumber = 2,
         IncludeTextInIncompleteResponse = true
     };
-    using (var room = new DjGroupRoom(new TestHttpClientFactory(incompleteWithTextHandler), new TestWebHostEnvironment()))
+    using (var room = CreateTestRoom(incompleteWithTextHandler))
     {
         try
         {
@@ -243,7 +338,8 @@ try
         }
         catch (InvalidOperationException exception)
         {
-            Check(exception.Message.Contains("incomplete response with usable text", StringComparison.Ordinal),
+            Check(exception.Message.Contains("OpenAI response incomplete (max_output_tokens)", StringComparison.Ordinal) &&
+                  exception.Message.Contains("usable text returned: yes", StringComparison.Ordinal),
                 "An incomplete response that includes text must say so accurately.");
         }
 
@@ -264,6 +360,33 @@ finally
 {
     Environment.SetEnvironmentVariable("ANEED_AZURE_SQL_CONNECTION", originalConnection);
     Environment.SetEnvironmentVariable("OPENAI_API_KEY", originalApiKey);
+    Environment.SetEnvironmentVariable("ANEED_DJ_MAX_OUTPUT_TOKENS", originalLimit);
+}
+
+sealed class DelayedReplyHandler : HttpMessageHandler
+{
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Canceled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int active, requests;
+    public int MaxActive { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        MaxActive = Math.Max(MaxActive, Interlocked.Increment(ref active));
+        var first = Interlocked.Increment(ref requests) == 1;
+        try
+        {
+            if (first)
+            {
+                using var registration = token.Register(() => Canceled.TrySetResult());
+                Started.TrySetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { status = "completed", output_text = first ? "Stale reply" : "New reply" }) };
+        }
+        finally { Interlocked.Decrement(ref active); }
+    }
 }
 
 sealed class TestHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory

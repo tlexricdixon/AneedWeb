@@ -31,6 +31,8 @@ public sealed record MeasuredAudioFeatures(
     decimal? SpectralCentroidMeanHz,
     decimal? OnsetsPerSecond);
 
+public sealed record LyricReadStatus(string State, string? Version, string? Reason);
+
 public sealed record MusicIntelligence(
     long? SamSongId,
     Guid? AneedId,
@@ -52,7 +54,9 @@ public sealed record MusicIntelligence(
     MeasuredAudioFeatures? AudioFeatures = null,
     string? ClapDataSource = null,
     string? ClapSourceAnalysisVersion = null,
-    bool ClapProvenanceVerified = false)
+    bool ClapProvenanceVerified = false,
+    LyricInterpretation? Lyrics = null,
+    LyricReadStatus? LyricStatus = null)
 {
     public static MusicIntelligence Unavailable(long? samSongId, string error)
         => new(samSongId, null, null, null, null, false, false, [], null, null, null, null, error);
@@ -124,6 +128,7 @@ public sealed class VerifiedMusicContext
     public ImmutableArray<ClapMoodAxis> MoodAxes { get; }
     public MeasuredAudioFeatures? AudioFeatures { get; }
     public string? AnalysisStatus { get; }
+    public LyricInterpretation? Lyrics { get; private init; }
 
     public static VerifiedMusicContext Create(Track track, MusicIntelligence analysis)
     {
@@ -162,7 +167,10 @@ public sealed class VerifiedMusicContext
             clapVerified && analysis.Facets is not null ? ImmutableArray.CreateRange(analysis.Facets) : [],
             clapVerified && analysis.MoodAxes is not null ? ImmutableArray.CreateRange(analysis.MoodAxes) : [],
             audioFeatures,
-            analysisStatus);
+            analysisStatus)
+        {
+            Lyrics = identityVerified && analysis.Lyrics?.IsValidFor(analysis.AneedId) == true ? analysis.Lyrics : null
+        };
     }
 }
 
@@ -296,7 +304,7 @@ public sealed class ClapMusicAnalysisService(
         return new(true, aneedId);
     }
 
-    private static async Task<MusicIntelligence> GetClapAnalysisAsync(
+    private async Task<MusicIntelligence> GetClapAnalysisAsync(
         string connectionString,
         long samSongId,
         Guid aneedId,
@@ -450,6 +458,17 @@ public sealed class ClapMusicAnalysisService(
 
         await transaction.CommitAsync(cancellationToken);
         var clapFound = provenanceVerified || descriptions.Count > 0;
+        LyricInterpretation? lyrics = null;
+        LyricReadStatus lyricStatus;
+        try
+        {
+            (lyrics, lyricStatus) = await ReadLyricsAsync(connection, aneedId, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is NpgsqlException or JsonException or OverflowException)
+        {
+            logger.LogWarning("Optional lyric analysis unavailable for {AneedId} ({ErrorType})", aneedId, ex.GetType().Name);
+            lyricStatus = new("Error", null, "The lyric analysis could not be read.");
+        }
         var error = clapFound ? null :
             $"No valid {V22AnalysisVersion} descriptor or unambiguous legacy CLAP descriptions were available for this AneedId.";
 
@@ -462,7 +481,38 @@ public sealed class ClapMusicAnalysisService(
             audioFeatures,
             dataSource,
             sourceAnalysisVersion,
-            provenanceVerified);
+            provenanceVerified, lyrics, lyricStatus);
+    }
+
+    private static async Task<(LyricInterpretation?, LyricReadStatus)> ReadLyricsAsync(NpgsqlConnection connection, Guid aneedId, CancellationToken token)
+    {
+        // Independent SELECT after the audio transaction: a lyric query failure must not roll back audio context.
+        await using var command = new NpgsqlCommand("""
+            SELECT aneed_id, analysis_version, status, model_id, lyrics_source, analyzed_at, confidence,
+                   themes::text, emotions::text, narrative::text, relationships::text, interpretation,
+                   lyrics_available IS TRUE, NULLIF(btrim(error_message), '') IS NOT NULL
+            FROM music.lyric_analysis
+            WHERE aneed_id = @id
+            ORDER BY analyzed_at DESC NULLS LAST, analysis_version
+            """, connection) { CommandTimeout = CommandTimeoutSeconds };
+        command.Parameters.Add("id", NpgsqlDbType.Uuid).Value = aneedId;
+        await using var row = await command.ExecuteReaderAsync(token);
+        LyricReadStatus? latest = null;
+        while (await row.ReadAsync(token))
+        {
+            var version = row.GetString(1);
+            var status = row.GetString(2);
+            LyricReadStatus? excluded = row.GetBoolean(13) || status is "failed" or "error" ? new("Error", version, "Stored lyric analysis reports an error.")
+                : status != "complete" || !row.GetBoolean(12) ? new("Not available", version, "No completed interpretation with lyrics available.")
+                : version is not (LyricInterpretation.SupportedVersion or LyricInterpretation.UnverifiedVersion) ? new("Rejected", version, "Unsupported lyric analysis version.") : null;
+            if (excluded is not null) { latest ??= excluded; continue; }
+            var lyrics = LyricInterpretation.FromRow(row.GetGuid(0), row.GetString(1), row.GetString(2), row.GetString(3),
+                ReadNullableString(row, 4), row.IsDBNull(5) ? null : row.GetDateTime(5), row.IsDBNull(6) ? null : row.GetDecimal(6),
+                ReadNullableString(row, 7), ReadNullableString(row, 8), ReadNullableString(row, 9), ReadNullableString(row, 10), ReadNullableString(row, 11));
+            if (lyrics is not null) return (lyrics, new("Loaded", version, null));
+            latest ??= new("Rejected", version, "No usable narrative for this analysis version.");
+        }
+        return (null, latest ?? new("Not available", null, "No lyric analysis for this AneedId."));
     }
 
     public static bool IsV22ProvenanceVerified(

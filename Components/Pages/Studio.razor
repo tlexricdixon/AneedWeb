@@ -3,12 +3,12 @@
 @using AneedWeb.Djs
 @implements IDisposable
 @inject DjGroupRoom Room
-@inject SamClapSchemaService ClapSchema
+@inject DjPlaybackCoordinator Playback
 
-<PageTitle>DJ Group Rehearsal</PageTitle>
-<h1>Aneed DJ group rehearsal</h1>
-<p>Eight fictional DJs, one shared studio conversation. Development-only experiment; no listeners or database yet.</p>
-<p class="text-muted">Rehearsal model: <code>@Room.ModelName</code></p>
+<PageTitle>DJ Studio</PageTitle>
+<h1>Aneed DJ Studio</h1>
+<p>Development-only automatic DJ conversation based on current SAM playback.</p>
+<p class="text-muted">Model: <code>@Room.ModelName</code></p>
 
 @if (!Playback.Enabled)
 {
@@ -24,13 +24,17 @@ else
             <p class="mb-1"><strong>Artist:</strong> @current.Artist</p>
             <p class="mb-1"><strong>Song:</strong> @current.Title</p>
             <p class="mb-1"><strong>SAM song ID:</strong> @(current.SamSongId?.ToString() ?? "Unavailable")</p>
-            <p class="mb-1"><strong>AneedId:</strong> @(session.MusicIntelligence?.AneedId?.ToString() ?? "Resolving")</p>
+            <p class="mb-1"><strong>AneedId:</strong> @(session.MusicIntelligence?.AneedId?.ToString() ?? "Unavailable or resolving")</p>
         }
         else
         {
             <p class="mb-1">Waiting for a fresh SAM playback event.</p>
         }
-        <p class="mb-0"><strong>Session:</strong> @session.Status</p>
+            <p class="mb-0"><strong>Session:</strong> @session.Status</p>
+            @if (!Room.ApiKeyConfigured)
+            {
+                <p role="status" class="text-muted mb-0">@Room.ConfigurationDiagnostic</p>
+            }
         @if (!string.IsNullOrWhiteSpace(session.Message))
         {
             <p class="text-muted mb-0">@session.Message</p>
@@ -45,19 +49,69 @@ else
     {
         <section class="card p-3 mb-3" aria-label="Music Intelligence">
             <h2 class="h5">Music Intelligence</h2>
-            <p class="mb-1"><strong>CLAP match:</strong> @(analysis.ClapMatchFound ? "Verified" : "Unavailable")</p>
-            @if (analysis.Descriptions.Count > 0)
+            <p class="mb-1"><strong>AneedId:</strong> @(analysis.AneedId?.ToString() ?? "Missing")</p>
+            <p class="mb-1"><strong>CLAP analysis version:</strong> @(analysis.ClapVersion ?? "Missing")</p>
+            <p class="mb-1"><strong>CLAP data source:</strong> @(analysis.ClapDataSource ?? "Missing")</p>
+            <p class="mb-1"><strong>Provenance:</strong> @(analysis.ClapProvenanceVerified ? "Verified against original embedding source identity and model/version" : "Not verified / legacy fallback / unavailable")</p>
+            @if (analysis.Facets is { Count: > 0 } facets)
             {
+                <h3 class="h6 mt-2">CLAP musical-similarity candidates</h3>
+                @foreach (var facet in facets)
+                {
+                    <p class="mb-1"><strong>@facet.Name@(facet.Ambiguous == true ? " (ambiguous)" : ""):</strong>
+                        @(facet.Top.Count == 0 ? "No candidates" : string.Join(", ", facet.Top.Select(candidate => candidate.Label)))
+                        @if (facet.TopGapZ is { } gap)
+                        {
+                            <span class="text-muted">(top-gap indicator @gap.ToString("0.##"))</span>
+                        }
+                    </p>
+                }
+            }
+            else
+            {
+                <p class="mb-1">CLAP v2.2 facets are missing or invalid.</p>
+            }
+            @if (analysis.MoodAxes is { Count: > 0 } axes)
+            {
+                <h3 class="h6 mt-2">Audio-only emotional signals</h3>
+                <p class="mb-1">Relative model-derived indicators (not calibrated probabilities or psychological facts):</p>
                 <ul>
-                    @foreach (var description in analysis.Descriptions)
+                    @foreach (var axis in axes)
                     {
-                        <li>@description.Text <span class="text-muted">(similarity @description.Similarity.ToString("0.0000"))</span></li>
+                        <li>@axis.Name: @(axis.RelativeSignal?.ToString("0.##") ?? "missing")@(axis.Ambiguous == true ? " (ambiguous)" : "")</li>
                     }
                 </ul>
             }
             else
             {
-                <p class="mb-1">No CLAP descriptions are available; the conversation will use SAM metadata.</p>
+                <p class="mb-1">Audio-only emotional signals are missing.</p>
+            }
+            @if (analysis.AudioFeatures is { } features)
+            {
+                <h3 class="h6 mt-2">Measured audio features</h3>
+                <ul>
+                    <li>Duration: @(features.DurationSeconds?.ToString("0.##") ?? "missing") seconds</li>
+                    <li>Estimated BPM: @(features.EstimatedBpm?.ToString("0.##") ?? "missing")</li>
+                    <li>Estimated key: @(features.EstimatedKey ?? "missing") (correlation @(features.KeyCorrelation?.ToString("0.##") ?? "missing"))</li>
+                    <li>RMS mean/opening/closing: @(features.RmsMean?.ToString("0.####") ?? "missing") / @(features.RmsOpening20Seconds?.ToString("0.####") ?? "missing") / @(features.RmsClosing20Seconds?.ToString("0.####") ?? "missing")</li>
+                    <li>Spectral centroid mean: @(features.SpectralCentroidMeanHz?.ToString("0.##") ?? "missing") Hz</li>
+                    <li>Onsets per second: @(features.OnsetsPerSecond?.ToString("0.##") ?? "missing")</li>
+                </ul>
+                <p class="text-muted">BPM and key are estimates, not guaranteed musical facts.</p>
+            }
+            else
+            {
+                <p class="mb-1">Measured audio features are unavailable.</p>
+            }
+            @if (analysis.ClapDataSource?.StartsWith("Legacy", StringComparison.OrdinalIgnoreCase) == true && analysis.Descriptions.Count > 0)
+            {
+                <h3 class="h6 mt-2">Legacy CLAP fallback descriptions (not verified genres)</h3>
+                <ul>
+                    @foreach (var description in analysis.Descriptions)
+                    {
+                        <li>@description.Text</li>
+                    }
+                </ul>
             }
             @if (!string.IsNullOrWhiteSpace(analysis.Error))
             {
@@ -66,37 +120,37 @@ else
         </section>
     }
 
-    <div class="mb-3">
-        <button type="button" class="btn btn-outline-secondary me-2" @onclick="CheckClapSchemaAsync" disabled="@busy">
-            Check SAM PostgreSQL CLAP schema
-        </button>
-        @if (!string.IsNullOrWhiteSpace(clapStatus))
+    var music = session.MusicIntelligence;
+    var currentMusic = music?.SamSongId is { } songId && songId == session.Broadcast.Current?.SamSongId ? music : null;
+    var lyricStatus = currentMusic?.LyricStatus;
+    var included = currentMusic?.AneedId is { } id && session.Diagnostics.Any(d => d.AneedId == id && d.SamSongId == currentMusic.SamSongId && d.LyricsIncluded);
+    <section class="card p-3 mb-3" aria-label="Lyrics Analysis">
+        <h2 class="h5">Lyrics Analysis</h2>
+        <p class="mb-1"><strong>Lyrics:</strong> @(lyricStatus?.State ?? "Not available")</p>
+        <p class="mb-1"><strong>Analysis version:</strong> @(lyricStatus?.Version ?? "—")</p>
+        <p class="mb-1"><strong>DJ prompt:</strong> @(included ? "Included" : "Not included")</p>
+        @if (!included)
         {
-            <p role="status" class="mt-2">@clapStatus</p>
+            <p class="mb-0"><strong>Reason:</strong> @(lyricStatus?.Reason ?? (lyricStatus?.State == "Loaded" ? "No DJ prompt has included this interpretation yet." : currentMusic is null ? "Waiting for the current song context." : "Lyric lookup was not available for this song."))</p>
         }
+    </section>
 
-        <button type="button" class="btn btn-primary me-2" @onclick="RunAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
-            @(busy ? "DJs are talking…" : "Let the DJs talk (3 turns)")
-        </button>
-        <button type="button" class="btn btn-outline-primary me-2" @onclick="RunCurrentSongAsync" disabled="@(busy || !Room.ApiKeyConfigured)">
-            Rehearse with current song + CLAP
-        </button>
-        <button type="button" class="btn btn-outline-secondary" @onclick="Reset" disabled="@busy">
-            Start over
-        </button>
-    </div>
-    @if (!string.IsNullOrEmpty(error))
+    @if (session.SelectedDjIds.Count > 0 || session.Turns.Count > 0 || !string.IsNullOrEmpty(session.Message))
     {
         <section class="card p-3 mb-3" aria-label="Development playback schedule">
             <h2 class="h5">Development schedule diagnostics</h2>
             <p class="mb-1"><strong>Playback identity:</strong> SAM @(session.Broadcast.Current?.SamSongId?.ToString() ?? "Unavailable"), start @(session.PlaybackStarted?.ToLocalTime().ToString("HH:mm:ss") ?? "Unavailable") @(session.PlaybackStartEstimated ? "(estimated at detection)" : "(SAM timestamp)")</p>
             <p class="mb-1"><strong>Duration:</strong> @session.Duration.TotalSeconds.ToString("0") seconds @(session.DurationEstimated ? "(estimated)" : "(available data)")</p>
             <p class="mb-2"><strong>Elapsed:</strong> @session.Elapsed.ToString(@"hh\:mm\:ss")</p>
+            @if (session.SelectedDjIds.Count > 0)
+            {
+                <p class="mb-2"><strong>@session.SelectedDjIds.Count DJs in speaking order:</strong> @string.Join(", ", session.SelectedDjIds.Select(id => DjProfiles.Get(id).Name))</p>
+            }
             @foreach (var turn in session.Turns)
             {
-                <p class="mb-1">@turn.Speaker — scheduled @turn.ScheduledAt.ToLocalTime().ToString("HH:mm:ss"); actual @(turn.ActualAt?.ToLocalTime().ToString("HH:mm:ss") ?? "pending"); @turn.Status</p>
+                <p class="mb-1">Turn @turn.Turn — @turn.Speaker; scheduled @turn.ScheduledAt.ToLocalTime().ToString("HH:mm:ss"); actual @(turn.ActualAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—"); @turn.Status</p>
             }
-            @if (Playback.RoomDiagnosticsSnapshot() is { Count: > 0 } diagnostics)
+            @if (session.Diagnostics is { Count: > 0 } diagnostics)
             {
                 @foreach (var diagnostic in diagnostics)
                 {
@@ -106,7 +160,7 @@ else
         </section>
     }
 
-    @if (session.Turns.FirstOrDefault(turn => turn.Status == "Scheduled") is { } nextTurn && session.Status is "Scheduled" or "Resolving song context")
+    @if (session.Turns.FirstOrDefault(turn => turn.Status == "Pending") is { } nextTurn && session.Status is "Scheduled" or "Resolving song context")
     {
         <p role="status">@(session.Status == "Resolving song context" ? "Preparing song context…" : $"Next speaker: {nextTurn.Speaker} at {nextTurn.ScheduledAt.ToLocalTime():HH:mm:ss}")</p>
     }
@@ -135,86 +189,7 @@ else
 }
 
 @code {
-    private IReadOnlyList<DjGroupRoom.GroupLine> lines = [];
-    private bool busy;
-    private string? clapStatus;
-    private string? error;
-    private Broadcast nowPlaying = new(false, null, [], "SAM status has not been loaded yet.");
-    private MusicIntelligence musicIntelligence = MusicIntelligence.Unavailable(null, "Music analysis has not been loaded yet.");
-    private readonly CancellationTokenSource lifetimeCts = new();
-
-    protected override async Task OnInitializedAsync()
-    {
-        Room.Changed += OnRoomChanged;
-        RefreshConversation();
-        await RefreshNowPlayingAsync();
-    }
-
-    private void RefreshConversation()
-    {
-        lines = Room.Snapshot();
-        busy = Room.IsRunning;
-    }
-
-    private async Task RefreshNowPlayingAsync()
-    {
-        nowPlaying = await BroadcastService.Get();
-        musicIntelligence = MusicIntelligence.Unavailable(nowPlaying.Current?.SamSongId, "Analysis will be loaded when the rehearsal starts.");
-    }
-
-    private void OnRoomChanged() => _ = InvokeAsync(() =>
-    {
-        RefreshConversation();
-        StateHasChanged();
-    });
-
-    private async Task RunAsync()
-    {
-        error = null;
-        try
-        {
-            if (nowPlaying.IsStale || nowPlaying.Current is null || nowPlaying.Current.SamSongId is null or <= 0)
-                throw new InvalidOperationException(nowPlaying.Error ?? "Current SAM song could not be verified. Fix the history source before starting DJ conversation.");
-
-            musicIntelligence = await ClapAnalysis.GetForSamSongAsync(nowPlaying.Current.SamSongId.Value, lifetimeCts.Token);
-            var musicContext = VerifiedMusicContext.Create(nowPlaying.Current, musicIntelligence);
-            await Room.RunThreeTurnsAsync(musicContext, lifetimeCts.Token);
-        }
-        catch (InvalidOperationException ex)
-        {
-            error = ex.Message;
-        }
-        catch (OperationCanceledException)
-        {
-            error = "The rehearsal was cancelled. Start it again when ready.";
-        }
-        catch (Exception)
-        {
-            error = "The DJs couldn't finish this rehearsal. Try again.";
-        }
-        finally
-        {
-            RefreshConversation();
-        }
-    }
-
-    private async Task RunCurrentSongAsync()
-    {
-        error = null;
-        try { await Room.RunCurrentSongAsync(lifetimeCts.Token); }
-        catch (InvalidOperationException ex) { error = ex.Message; }
-        catch (OperationCanceledException) { error = "The rehearsal was cancelled."; }
-        catch (Exception) { error = "The music rehearsal could not finish. Check the server logs."; }
-        finally { Refresh(); }
-    }
-
-    private async Task CheckClapSchemaAsync()
-    {
-        try { clapStatus = await ClapSchema.InspectAsync(lifetimeCts.Token); }
-        catch (Exception) { clapStatus = "Schema check failed; inspect application logs."; }
-    }
-
-    private void Reset()
+    protected override void OnInitialized()
     {
         Playback.Changed += OnPlaybackChanged;
     }
