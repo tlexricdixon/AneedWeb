@@ -33,7 +33,8 @@
         <h2 class="h5">@preview.Artist — @preview.Title</h2>
         <p>SAM ID: @preview.SamSongId</p>
         <p>ANEED ID: <code>@preview.AneedId</code></p>
-        <p>@preview.PriorRehearsalLines original dialogue lines; @preview.DjProfiles active DJ profiles; @preview.ApprovedMemoryCount approved memories available.</p>
+        <p><strong>Context source:</strong> @preview.ContextSource</p>
+        <p>@preview.PriorRehearsalLines previous rehearsal dialogue lines (zero is OK); @preview.DjProfiles active DJ profiles; @preview.ApprovedMemoryCount approved memories available.</p>
     </section>
 }
 @if (result is not null)
